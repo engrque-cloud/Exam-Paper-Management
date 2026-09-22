@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@media print {
+  /* Hide standard screen elements when printing */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Expose printable documents */
+  #printable-datesheet,
+  #printable-datesheet *,
+  #printable-marksheet-content,
+  #printable-marksheet-content *,
+  #printable-combined-marksheet,
+  #printable-combined-marksheet *,
+  #printable-batch-marksheets,
+  #printable-batch-marksheets *,
+  .printable-area,
+  .printable-area * {
+    visibility: visible;
+  }
+
+  #printable-datesheet,
+  #printable-marksheet-content,
+  #printable-combined-marksheet,
+  #printable-batch-marksheets,
+  .printable-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 6mm !important;
+    background: white !important;
+    color: black !important;
+    box-shadow: none !important;
+    border: none !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  #printable-datesheet img,
+  #printable-marksheet-content img,
+  #printable-combined-marksheet img,
+  #printable-batch-marksheets img,
+  .printable-area img {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    max-height: 100% !important;
+  }
+
+  /* Force single-page print without spillover */
+  .force-single-page-print {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    max-height: 280mm !important;
+    overflow: hidden !important;
+  }
+
+  .no-print,
+  .no-print * {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  .page-break-inside-avoid {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-page-break {
+    page-break-after: always !important;
+    break-after: page !important;
+    margin-bottom: 20mm;
+  }
+
+  @page {
+    size: auto;
+    margin: 8mm;
+  }
+}

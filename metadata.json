@@ -1,0 +1,6 @@
+{
+  "name": "Exam Paper Management System",
+  "description": "Examination Management System for Govt. Girls Model Degree College, Jinnah Town, Quetta with executive sheet telemetry, 64-course tracking, duty roster, visual analysis, bottleneck tracking, and result gazette publication.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
