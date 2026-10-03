@@ -206,6 +206,30 @@ export interface GlobalDeadlineConfig {
   lastUpdatedAt: string;
 }
 
+export type StudentStatus = 'active' | 'graduated' | 'archived';
+
+export interface Student {
+  rollNumber: string; // PRIMARY KEY (Unique identifier e.g. "2026-ENG-001")
+  name: string;
+  fatherName: string;
+  department: SubjectType; // e.g. "English", "Islamic Studies", "Sociology", "Zoology"
+  currentSemester: SemesterNumber; // 1 to 8
+  session: string; // e.g. "2024-2028" or "Fall 2026"
+  registrationNumber: string; // e.g. "GGMDC/QTA/2024/019"
+  status: StudentStatus; // 'active' | 'graduated' | 'archived'
+  admissionDate: string; // YYYY-MM-DD
+  graduationDate?: string; // YYYY-MM-DD when she/he passes out
+  archivedAt?: string;
+  archiveReason?: string;
+  phone?: string;
+  email?: string;
+  gender?: 'Female' | 'Male';
+  cnic?: string;
+  emergencyContact?: string;
+  overallCgpa?: number;
+  totalCreditsCompleted?: number;
+}
+
 export type ResultStatus =
   | 'draft'
   | 'submitted_by_faculty'

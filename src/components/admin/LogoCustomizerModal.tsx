@@ -215,10 +215,10 @@ export const LogoCustomizerModal: React.FC<LogoCustomizerModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                Date Sheet Logo &amp; Institutional Branding
+                Official Logo &amp; Institutional Seal (All Prints)
               </h2>
               <p className="text-xs text-slate-300">
-                Upload or select an official college logo for printouts and exports
+                Upload PNG/JPEG logo or official seal photo for marksheets, transcripts, date sheets &amp; gazettes
               </p>
             </div>
           </div>
@@ -452,7 +452,7 @@ export const LogoCustomizerModal: React.FC<LogoCustomizerModalProps> = ({
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Date Sheet Institution Header Title:
+                  Institution Header Title (Printed Across All Documents):
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -474,7 +474,7 @@ export const LogoCustomizerModal: React.FC<LogoCustomizerModalProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-2">
-                  Logo Arrangement on Printed Date Sheet:
+                  Logo &amp; Seal Header Arrangement (All Printouts):
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   <div
@@ -504,7 +504,7 @@ export const LogoCustomizerModal: React.FC<LogoCustomizerModalProps> = ({
                     }`}
                   >
                     <div className="text-xs">Both Left &amp; Right</div>
-                    <div className="text-[10px] text-slate-500">Mirrored crest on both corners of header</div>
+                    <div className="text-[10px] text-slate-500">Mirrored crest on both corners of printed headers</div>
                   </div>
                 </div>
               </div>
@@ -526,7 +526,7 @@ export const LogoCustomizerModal: React.FC<LogoCustomizerModalProps> = ({
             onClick={onClose}
             className="px-6 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition active:scale-95 cursor-pointer"
           >
-            Done &amp; View Date Sheet
+            Save &amp; Apply to All Prints
           </button>
         </div>
       </div>

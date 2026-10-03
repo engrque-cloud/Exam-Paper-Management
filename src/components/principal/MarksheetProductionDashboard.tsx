@@ -35,6 +35,7 @@ import {
   CombinedStudentExamProfile,
 } from '../common/PrintableCombinedMarksheetCard';
 import { CombinedStudentMarksheetModal } from '../common/CombinedStudentMarksheetModal';
+import { LogoCustomizerModal } from '../admin/LogoCustomizerModal';
 
 export interface AggregatedStudent {
   rollNumber: string;
@@ -84,6 +85,7 @@ export const MarksheetProductionDashboard: React.FC = () => {
   const [singleStudentModalRecord, setSingleStudentModalRecord] = useState<StudentMarksheetRecord | null>(null);
   const [batchModalRecords, setBatchModalRecords] = useState<StudentMarksheetRecord[] | null>(null);
   const [batchModalTitle, setBatchModalTitle] = useState<string>('Official Batch Marksheets');
+  const [isLogoModalOpen, setIsLogoModalOpen] = useState<boolean>(false);
 
   // Aggregate all unique students from results
   const allStudents = useMemo(() => {
@@ -381,6 +383,17 @@ export const MarksheetProductionDashboard: React.FC = () => {
 
           {/* Header Action Buttons */}
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            {/* Institution Logo & Seal photo customization button */}
+            <button
+              type="button"
+              onClick={() => setIsLogoModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-900 rounded-xl text-xs font-bold border border-slate-300 hover:border-emerald-300 shadow-2xs transition cursor-pointer"
+              title="Add / change college logo (PNG/JPEG) and seal photo for all marksheets"
+            >
+              <Award className="w-4 h-4 text-emerald-600" />
+              <span>Logo &amp; Seal</span>
+            </button>
+
             {selectedRolls.size > 0 && (
               <button
                 onClick={handlePrintSelected}
@@ -1001,6 +1014,12 @@ export const MarksheetProductionDashboard: React.FC = () => {
         profile={combinedProfile}
         allCandidateNames={allCandidateNames}
         onSelectStudentName={handleSelectStudentForCombined}
+      />
+
+      {/* Global Logo & Seal Customizer Modal */}
+      <LogoCustomizerModal
+        isOpen={isLogoModalOpen}
+        onClose={() => setIsLogoModalOpen(false)}
       />
     </div>
   );

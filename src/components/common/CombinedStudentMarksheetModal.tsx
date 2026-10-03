@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Printer,
   X,
@@ -8,12 +8,14 @@ import {
   User,
   CheckCircle2,
   FileCheck2,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { useExam } from '../../context/ExamContext';
 import {
   PrintableCombinedMarksheetCard,
   CombinedStudentExamProfile,
 } from './PrintableCombinedMarksheetCard';
+import { LogoCustomizerModal } from '../admin/LogoCustomizerModal';
 
 export interface CombinedStudentMarksheetModalProps {
   isOpen: boolean;
@@ -35,6 +37,8 @@ export const CombinedStudentMarksheetModal: React.FC<CombinedStudentMarksheetMod
     collegeLogo,
     collegeLogoRight,
   } = useExam();
+
+  const [isLogoModalOpen, setIsLogoModalOpen] = useState(false);
 
   if (!isOpen || !profile) return null;
 
@@ -126,6 +130,17 @@ export const CombinedStudentMarksheetModal: React.FC<CombinedStudentMarksheetMod
               </div>
             )}
 
+            {/* Logo & Seal Photo Customizer Button */}
+            <button
+              type="button"
+              onClick={() => setIsLogoModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition cursor-pointer"
+              title="Add / change college logo (PNG/JPEG) and seal photo"
+            >
+              <ImageIcon className="w-4 h-4 text-emerald-400" />
+              <span className="hidden sm:inline">Logo &amp; Seal</span>
+            </button>
+
             <button
               onClick={handlePrint}
               className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-xs font-bold shadow-md transition cursor-pointer"
@@ -181,6 +196,12 @@ export const CombinedStudentMarksheetModal: React.FC<CombinedStudentMarksheetMod
           </div>
         </div>
       </div>
+
+      {/* Global Logo & Seal Photo Customizer Modal */}
+      <LogoCustomizerModal
+        isOpen={isLogoModalOpen}
+        onClose={() => setIsLogoModalOpen(false)}
+      />
     </div>
   );
 };

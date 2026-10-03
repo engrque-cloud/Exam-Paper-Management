@@ -34,9 +34,9 @@ export const AuthModal: React.FC = () => {
     users,
   } = useExam();
 
-  // Login form state
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
+  // Login form state - prefilled with Administrator credentials
+  const [loginEmail, setLoginEmail] = useState('hr.bppra@gmail.com');
+  const [loginPassword, setLoginPassword] = useState('admin');
   const [loginError, setLoginError] = useState<string | null>(null);
 
   // Signup form state
@@ -85,14 +85,6 @@ export const AuthModal: React.FC = () => {
     if (!res.success) {
       setLoginError(res.error || 'Failed to sign in.');
     }
-  };
-
-  // Handle Quick Demo Login
-  const handleQuickLogin = (email: string, pass: string) => {
-    setLoginEmail(email);
-    setLoginPassword(pass);
-    setLoginError(null);
-    login(email, pass);
   };
 
   // Handle Signup submission
@@ -281,10 +273,10 @@ export const AuthModal: React.FC = () => {
                       id="login-email-input"
                       type="email"
                       required
-                      placeholder="e.g. bilal.qureshi@university.edu"
+                      placeholder="hr.bppra@gmail.com"
                       value={loginEmail}
                       onChange={e => setLoginEmail(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                     />
                   </div>
                 </div>
@@ -320,71 +312,11 @@ export const AuthModal: React.FC = () => {
                 <button
                   id="login-submit-btn"
                   type="submit"
-                  className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-md shadow-emerald-600/20 transition active:scale-98"
+                  className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-md shadow-emerald-600/20 transition active:scale-98 cursor-pointer"
                 >
-                  Sign In to Workspace
+                  Sign In to Administrator Workspace
                 </button>
               </form>
-
-              {/* 1-Click Demo Accounts for Fast Testing */}
-              <div className="mt-5 pt-4 border-t border-slate-200">
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                  Fast Demo 1-Click Access
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    id="quick-login-admin"
-                    type="button"
-                    onClick={() => handleQuickLogin('admin@university.edu', 'admin')}
-                    className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 hover:border-emerald-200 border border-slate-200 text-left transition text-xs"
-                  >
-                    <div className="flex items-center gap-1.5 font-semibold text-slate-800">
-                      <ShieldAlert className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>Admin</span>
-                    </div>
-                    <p className="text-[10px] text-slate-500 mt-0.5 truncate">Dr. Hawthorne (pwd: admin)</p>
-                  </button>
-
-                  <button
-                    id="quick-login-teacher"
-                    type="button"
-                    onClick={() => handleQuickLogin('bilal.qureshi@university.edu', 'Teacher@123')}
-                    className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 hover:border-emerald-200 border border-slate-200 text-left transition text-xs"
-                  >
-                    <div className="flex items-center gap-1.5 font-semibold text-slate-800">
-                      <GraduationCap className="w-3.5 h-3.5 text-amber-600" />
-                      <span>Teacher</span>
-                    </div>
-                    <p className="text-[10px] text-slate-500 mt-0.5 truncate">Dr. Bilal (Sociology)</p>
-                  </button>
-
-                  <button
-                    id="quick-login-qa"
-                    type="button"
-                    onClick={() => handleQuickLogin('qa@university.edu', 'QA@123')}
-                    className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 hover:border-emerald-200 border border-slate-200 text-left transition text-xs"
-                  >
-                    <div className="flex items-center gap-1.5 font-semibold text-slate-800">
-                      <ClipboardCheck className="w-3.5 h-3.5 text-amber-500" />
-                      <span>QA Checker</span>
-                    </div>
-                    <p className="text-[10px] text-slate-500 mt-0.5 truncate">Dr. Marcus Sterling</p>
-                  </button>
-
-                  <button
-                    id="quick-login-principal"
-                    type="button"
-                    onClick={() => handleQuickLogin('principal@university.edu', 'Principal@123')}
-                    className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 hover:border-emerald-200 border border-slate-200 text-left transition text-xs"
-                  >
-                    <div className="flex items-center gap-1.5 font-semibold text-slate-800">
-                      <Building2 className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>Principal</span>
-                    </div>
-                    <p className="text-[10px] text-slate-500 mt-0.5 truncate">Prof. Dr. Raymond</p>
-                  </button>
-                </div>
-              </div>
             </div>
           )}
 

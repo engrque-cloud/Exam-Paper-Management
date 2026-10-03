@@ -25,6 +25,7 @@ import {
   MessageSquare,
   Smartphone,
 } from 'lucide-react';
+import { StudentNoticeBoardPortal } from '../students/StudentNoticeBoardPortal';
 
 export const LoginScreen: React.FC = () => {
   const {
@@ -37,11 +38,11 @@ export const LoginScreen: React.FC = () => {
   } = useExam();
 
   // Active view tab
-  const [activeTab, setActiveTab] = useState<'login' | 'signup' | 'forgot'>('login');
+  const [activeTab, setActiveTab] = useState<'login' | 'signup' | 'forgot' | 'student_noticeboard'>('login');
 
-  // Login form state
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
+  // Login form state - prefilled with Administrator credentials
+  const [loginEmail, setLoginEmail] = useState('hr.bppra@gmail.com');
+  const [loginPassword, setLoginPassword] = useState('admin');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -80,14 +81,6 @@ export const LoginScreen: React.FC = () => {
     if (!res.success) {
       setLoginError(res.error || 'Failed to sign in.');
     }
-  };
-
-  // Quick 1-Click login for testing
-  const handleQuickLogin = (email: string, pass: string) => {
-    setLoginEmail(email);
-    setLoginPassword(pass);
-    setLoginError(null);
-    login(email, pass);
   };
 
   // Toggle semester selection
@@ -229,6 +222,18 @@ export const LoginScreen: React.FC = () => {
               </button>
             </div>
 
+            {/* Student Result Notice Board Portal Link */}
+            <button
+              type="button"
+              id="login-header-student-portal-btn"
+              onClick={() => setActiveTab('student_noticeboard')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+              title="Student Notice Board: Check Results & Get Roll Number Slip"
+            >
+              <GraduationCap className="w-4 h-4 text-white" />
+              <span>Student Notice Board</span>
+            </button>
+
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100/70 border border-emerald-200 text-emerald-800 text-[11px] font-semibold">
               <ShieldCheck className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">256-Bit SSL Secure</span>
@@ -243,7 +248,7 @@ export const LoginScreen: React.FC = () => {
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-10 right-10 w-80 h-80 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="max-w-xl w-full mx-auto relative z-10">
+        <div className={`${activeTab === 'student_noticeboard' ? 'max-w-5xl' : 'max-w-xl'} w-full mx-auto relative z-10 transition-all duration-300`}>
           {/* Main Card Container */}
           <div className="bg-white text-slate-900 rounded-3xl shadow-xl shadow-emerald-950/5 border border-emerald-100 overflow-hidden">
             {/* Card Header */}
@@ -261,6 +266,7 @@ export const LoginScreen: React.FC = () => {
                 {activeTab === 'login' && 'Sign in to Your Academic Portal'}
                 {activeTab === 'signup' && 'Register Faculty Account'}
                 {activeTab === 'forgot' && 'Account Password Recovery'}
+                {activeTab === 'student_noticeboard' && 'Digital Result Notice Board & Roll Number Slip'}
               </h1>
               <p className="text-xs sm:text-sm text-slate-600 mt-1">
                 {activeTab === 'login' &&
@@ -269,6 +275,8 @@ export const LoginScreen: React.FC = () => {
                   'Create an examiner profile for verification and administrative approval.'}
                 {activeTab === 'forgot' &&
                   'Generate an institutional recovery code to securely reset your credentials.'}
+                {activeTab === 'student_noticeboard' &&
+                  'Lookup candidate results by Roll Number (Primary Key), print official admit cards, and access exam paper sheets.'}
               </p>
 
               {/* Navigation Tabs */}
@@ -319,6 +327,22 @@ export const LoginScreen: React.FC = () => {
                 >
                   Reset Password
                 </button>
+                <button
+                  type="button"
+                  id="tab-btn-student-noticeboard"
+                  onClick={() => {
+                    setActiveTab('student_noticeboard');
+                    setLoginError(null);
+                  }}
+                  className={`flex-1 py-2 rounded-lg transition text-center flex items-center justify-center gap-1 ${
+                    activeTab === 'student_noticeboard'
+                      ? 'bg-white text-emerald-950 shadow-2xs font-bold border border-emerald-200/50'
+                      : 'text-slate-600 hover:text-emerald-900'
+                  }`}
+                >
+                  <Award className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Notice Board &amp; Slips</span>
+                </button>
               </div>
             </div>
 
@@ -338,7 +362,7 @@ export const LoginScreen: React.FC = () => {
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                      University Email Address
+                      Administrator Email Address
                     </label>
                     <div className="relative">
                       <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
@@ -346,7 +370,7 @@ export const LoginScreen: React.FC = () => {
                         id="login-email-input"
                         type="email"
                         required
-                        placeholder="e.g. admin@university.edu or your.name@university.edu"
+                        placeholder="hr.bppra@gmail.com"
                         value={loginEmail}
                         onChange={e => setLoginEmail(e.target.value)}
                         className="w-full pl-10 pr-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-300 text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
@@ -407,110 +431,12 @@ export const LoginScreen: React.FC = () => {
                   <button
                     id="login-submit-btn"
                     type="submit"
-                    className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-xl shadow-md shadow-emerald-600/20 transition active:scale-98 flex items-center justify-center gap-2"
+                    className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-xl shadow-md shadow-emerald-600/20 transition active:scale-98 flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    <span>Sign In to Designated Portal</span>
+                    <span>Sign In to Administrator Portal</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </form>
-
-                {/* 1-Click Demo Accounts for Quick Access */}
-                <div className="pt-5 border-t border-emerald-100">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                      Instant 1-Click Role Login (Demo Credentials)
-                    </span>
-                    <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                      Pre-Configured
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {/* Admin */}
-                    <button
-                      id="quick-login-admin"
-                      type="button"
-                      onClick={() => handleQuickLogin('admin@university.edu', 'admin')}
-                      className="p-3 rounded-xl bg-slate-50 hover:bg-emerald-50/60 border border-slate-200 hover:border-emerald-300 text-left transition group shadow-2xs"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800 group-hover:text-emerald-950">
-                          <ShieldAlert className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Administrator</span>
-                        </div>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-mono font-bold">
-                          admin
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 truncate">
-                        Dr. Richard Hawthorne &bull; pwd: <span className="font-mono text-slate-800 font-semibold">admin</span>
-                      </p>
-                    </button>
-
-                    {/* Teacher */}
-                    <button
-                      id="quick-login-teacher"
-                      type="button"
-                      onClick={() => handleQuickLogin('bilal.qureshi@university.edu', 'Teacher@123')}
-                      className="p-3 rounded-xl bg-slate-50 hover:bg-emerald-50/60 border border-slate-200 hover:border-emerald-300 text-left transition group shadow-2xs"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800 group-hover:text-emerald-950">
-                          <GraduationCap className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Teacher / Faculty</span>
-                        </div>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-mono font-bold">
-                          teacher
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 truncate">
-                        Dr. Bilal (Sociology) &bull; pwd: <span className="font-mono text-slate-800 font-semibold">Teacher@123</span>
-                      </p>
-                    </button>
-
-                    {/* QA */}
-                    <button
-                      id="quick-login-qa"
-                      type="button"
-                      onClick={() => handleQuickLogin('qa@university.edu', 'QA@123')}
-                      className="p-3 rounded-xl bg-slate-50 hover:bg-emerald-50/60 border border-slate-200 hover:border-emerald-300 text-left transition group shadow-2xs"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800 group-hover:text-emerald-950">
-                          <ClipboardCheck className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>QA Paper Checker</span>
-                        </div>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-mono font-bold">
-                          qa
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 truncate">
-                        Dr. Marcus Sterling &bull; pwd: <span className="font-mono text-slate-800 font-semibold">QA@123</span>
-                      </p>
-                    </button>
-
-                    {/* Principal */}
-                    <button
-                      id="quick-login-principal"
-                      type="button"
-                      onClick={() => handleQuickLogin('principal@university.edu', 'Principal@123')}
-                      className="p-3 rounded-xl bg-slate-50 hover:bg-emerald-50/60 border border-slate-200 hover:border-emerald-300 text-left transition group shadow-2xs"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800 group-hover:text-emerald-950">
-                          <Building2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Principal & CAO</span>
-                        </div>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-mono font-bold">
-                          principal
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 truncate">
-                        Prof. Raymond Vance &bull; pwd: <span className="font-mono text-slate-800 font-semibold">Principal@123</span>
-                      </p>
-                    </button>
-                  </div>
-                </div>
               </div>
             )}
 
@@ -888,6 +814,13 @@ export const LoginScreen: React.FC = () => {
                     </button>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* TAB 4: STUDENT DIGITAL RESULT NOTICE BOARD & ROLL SLIPS */}
+            {activeTab === 'student_noticeboard' && (
+              <div className="p-4 sm:p-6">
+                <StudentNoticeBoardPortal />
               </div>
             )}
 

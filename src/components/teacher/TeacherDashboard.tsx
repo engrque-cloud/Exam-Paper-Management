@@ -31,9 +31,11 @@ import {
   CalendarCheck,
   Timer,
   Printer,
+  CalendarDays,
 } from 'lucide-react';
 import { computePaperUploadDeadline, formatReadableDate } from '../../utils/whatsapp';
 import { PrintableDateSheetModal } from '../admin/PrintableDateSheetModal';
+import { ExamScheduleCalendar } from '../calendar/ExamScheduleCalendar';
 
 export const TeacherDashboard: React.FC = () => {
   const {
@@ -60,6 +62,7 @@ export const TeacherDashboard: React.FC = () => {
   const [showReuploadModal, setShowReuploadModal] = useState(false);
   const [selectedPaperForReupload, setSelectedPaperForReupload] = useState<ExamPaper | null>(null);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [activeTeacherView, setActiveTeacherView] = useState<'roster' | 'calendar'>('roster');
 
   // New paper form state
   const [selectedSubject, setSelectedSubject] = useState<SubjectType>(currentTeacher.department);
@@ -359,8 +362,46 @@ export const TeacherDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* REJECTION URGENT ALERT CALLOUT (Requirement 2: On rejection the teacher got notified and again uploads the paper) */}
-      {rejectedPapers.length > 0 && (
+      {/* Teacher Workspace Navigation Bar: Assigned Courses & Duties vs Visual Exam & Deadlines Calendar */}
+      <div className="flex items-center gap-2 p-1.5 bg-emerald-50/70 rounded-2xl border border-emerald-100 flex-wrap">
+        <button
+          type="button"
+          onClick={() => setActiveTeacherView('roster')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+            activeTeacherView === 'roster'
+              ? 'bg-white text-emerald-950 shadow-xs border border-emerald-200/50'
+              : 'text-slate-600 hover:text-emerald-900'
+          }`}
+        >
+          <Layers className="w-4 h-4 text-emerald-600" />
+          <span>1. Assigned Courses, Invigilation &amp; Papers</span>
+        </button>
+
+        <button
+          type="button"
+          id="teacher-tab-calendar"
+          onClick={() => setActiveTeacherView('calendar')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+            activeTeacherView === 'calendar'
+              ? 'bg-white text-emerald-950 shadow-xs border border-emerald-200/50'
+              : 'text-slate-600 hover:text-emerald-900'
+          }`}
+        >
+          <CalendarDays className="w-4 h-4 text-emerald-600" />
+          <span>2. Interactive Exam &amp; Deadlines Calendar</span>
+        </button>
+      </div>
+
+      {/* Calendar View */}
+      {activeTeacherView === 'calendar' && (
+        <ExamScheduleCalendar initialSubject={currentTeacher.department} />
+      )}
+
+      {/* Roster & Paper Submission Workspace */}
+      {activeTeacherView === 'roster' && (
+        <>
+          {/* REJECTION URGENT ALERT CALLOUT (Requirement 2: On rejection the teacher got notified and again uploads the paper) */}
+          {rejectedPapers.length > 0 && (
         <div className="space-y-3">
           {rejectedPapers.map(rp => (
             <div
@@ -808,6 +849,8 @@ export const TeacherDashboard: React.FC = () => {
           </div>
         )}
       </div>
+      </>
+      )}
 
       {/* ========================================================================= */}
       {/* 1. Upload New Exam Paper Modal */}

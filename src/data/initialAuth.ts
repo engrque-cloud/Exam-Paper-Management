@@ -3,8 +3,8 @@ import { UserAccount, GlobalDeadlineConfig } from '../types';
 export const INITIAL_USER_ACCOUNTS: UserAccount[] = [
   {
     id: 'user-admin-1',
-    name: 'Dr. Richard Hawthorne',
-    email: 'admin@university.edu',
+    name: 'Administrator',
+    email: 'hr.bppra@gmail.com',
     password: 'admin',
     phone: '+92 300 8371920',
     whatsappNumber: '+923008371920',
@@ -13,7 +13,7 @@ export const INITIAL_USER_ACCOUNTS: UserAccount[] = [
     approvedBy: 'Board of Governors',
     approvedAt: '2026-08-01T08:00:00.000Z',
     designation: 'Controller of Examinations',
-    avatarColor: 'bg-indigo-600',
+    avatarColor: 'bg-emerald-600',
     createdAt: '2026-08-01T08:00:00.000Z',
     approvalEmailSent: true,
   },

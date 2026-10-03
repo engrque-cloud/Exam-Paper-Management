@@ -33,8 +33,19 @@ import {
   CheckCheck,
   ExternalLink,
   KeyRound,
+  Edit,
+  UserCog,
+  PlusCircle,
+  CalendarDays,
+  BarChart3,
+  FileText,
 } from 'lucide-react';
 import { WhatsAppNotificationModal } from '../common/WhatsAppNotificationModal';
+import { EditUserModal } from './EditUserModal';
+import { ExamScheduleCalendar } from '../calendar/ExamScheduleCalendar';
+import { UpcomingExamsSummaryChart } from './UpcomingExamsSummaryChart';
+import { StudentRegistryManager } from '../students/StudentRegistryManager';
+import { StudentNoticeBoardPortal } from '../students/StudentNoticeBoardPortal';
 import {
   WhatsAppTemplateType,
   openWhatsApp,
@@ -60,20 +71,26 @@ export const AdminDashboard: React.FC = () => {
     pendingUsersCount,
     setUserIdPending,
     markUserWhatsAppSent,
+    updateUserData,
+    deleteUserAccount,
+    signup,
     collegeName,
     subjects,
     semesters,
     courses,
   } = useExam();
 
-  // Admin Top-level Tab state: 'datesheet' vs 'matrix' vs 'approvals' vs 'curriculum'
-  const [activeAdminTab, setActiveAdminTab] = useState<'datesheet' | 'matrix' | 'approvals' | 'curriculum'>('datesheet');
+  // Admin Top-level Tab state: 'datesheet' vs 'calendar' vs 'analytics' vs 'matrix' vs 'approvals' vs 'curriculum' vs 'students' vs 'student_portal'
+  const [activeAdminTab, setActiveAdminTab] = useState<'datesheet' | 'calendar' | 'analytics' | 'matrix' | 'approvals' | 'curriculum' | 'students' | 'student_portal'>('datesheet');
+  const [noticeBoardRoll, setNoticeBoardRoll] = useState<string>('2026-ENG-001');
 
-  // User Approvals Filter & State
+  // User Approvals & Editing State
   const [approvalStatusFilter, setApprovalStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [rejectingUserId, setRejectingUserId] = useState<string | null>(null);
   const [rejectionReasonInput, setRejectionReasonInput] = useState('');
+  const [editingUser, setEditingUser] = useState<UserAccount | null>(null);
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
 
   // Credentials & WhatsApp Modal state
   const [credentialsModalUser, setCredentialsModalUser] = useState<UserAccount | null>(null);
@@ -332,6 +349,9 @@ export const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* UPCOMING EXAMS DISTRIBUTION & DIFFICULTY SUMMARY CHART (RECHARTS) */}
+      <UpcomingExamsSummaryChart />
+
       {/* Admin Module Navigation Tabs */}
       <div className="flex items-center justify-between border-b border-emerald-100 pb-3 flex-wrap gap-3">
         <div className="flex items-center gap-2 p-1 bg-emerald-50/70 rounded-2xl border border-emerald-100 flex-wrap">
@@ -345,7 +365,33 @@ export const AdminDashboard: React.FC = () => {
             }`}
           >
             <Calendar className="w-4 h-4 text-emerald-600" />
-            <span>1. Date Sheet &amp; Teacher Duties (5-Day Cutoff &amp; WhatsApp)</span>
+            <span>1. Date Sheet &amp; Duties</span>
+          </button>
+
+          <button
+            id="admin-tab-calendar"
+            onClick={() => setActiveAdminTab('calendar')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+              activeAdminTab === 'calendar'
+                ? 'bg-white text-emerald-950 shadow-xs border border-emerald-200/50'
+                : 'text-slate-600 hover:text-emerald-900'
+            }`}
+          >
+            <CalendarDays className="w-4 h-4 text-emerald-600" />
+            <span>2. Visual Calendar</span>
+          </button>
+
+          <button
+            id="admin-tab-analytics"
+            onClick={() => setActiveAdminTab('analytics')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+              activeAdminTab === 'analytics'
+                ? 'bg-white text-emerald-950 shadow-xs border border-emerald-200/50'
+                : 'text-slate-600 hover:text-emerald-900'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4 text-emerald-600" />
+            <span>3. Exams Summary Chart</span>
           </button>
 
           <button
@@ -358,7 +404,7 @@ export const AdminDashboard: React.FC = () => {
             }`}
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-            <span>2. Course Submission Matrix (32 Semesters)</span>
+            <span>4. Submission Matrix ({totalCoursesCount})</span>
           </button>
 
           <button
@@ -371,7 +417,7 @@ export const AdminDashboard: React.FC = () => {
             }`}
           >
             <UserCheck className="w-4 h-4 text-emerald-600" />
-            <span>3. User ID Approvals &amp; Access Control</span>
+            <span>5. Faculty User Approvals</span>
             {pendingUsersCount > 0 && (
               <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white shadow-xs animate-pulse">
                 {pendingUsersCount} Pending
@@ -389,17 +435,49 @@ export const AdminDashboard: React.FC = () => {
             }`}
           >
             <GraduationCap className="w-4 h-4 text-teal-600" />
-            <span>4. Curriculum (Add Subjects, Semesters &amp; Credit Hours)</span>
+            <span>6. Curriculum &amp; Credit Hours</span>
+          </button>
+
+          <button
+            id="admin-tab-students"
+            onClick={() => setActiveAdminTab('students')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+              activeAdminTab === 'students'
+                ? 'bg-white text-emerald-950 shadow-xs border border-emerald-200/50'
+                : 'text-slate-600 hover:text-emerald-900'
+            }`}
+          >
+            <Users className="w-4 h-4 text-emerald-600" />
+            <span>7. Student Registry &amp; Archives</span>
+          </button>
+
+          <button
+            id="admin-tab-noticeboard"
+            onClick={() => setActiveAdminTab('student_portal')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+              activeAdminTab === 'student_portal'
+                ? 'bg-white text-emerald-950 shadow-xs border border-emerald-200/50'
+                : 'text-slate-600 hover:text-emerald-900'
+            }`}
+          >
+            <FileText className="w-4 h-4 text-teal-600" />
+            <span>8. Result Notice Board &amp; Roll Slips</span>
           </button>
         </div>
 
         <div className="text-xs text-slate-500 font-medium">
-          Registered Accounts: <strong className="text-slate-800">{userAccounts.length}</strong> &bull; Subjects: <strong className="text-purple-700">{subjects.length}</strong> &bull; Total Courses: <strong className="text-indigo-600">{courses.length}</strong>
+          Accounts: <strong className="text-slate-800">{userAccounts.length}</strong> &bull; Depts: <strong className="text-purple-700">{subjects.length}</strong> &bull; Courses: <strong className="text-indigo-600">{courses.length}</strong>
         </div>
       </div>
 
       {/* Tab 1: Date Sheet, Teacher Duties & 5-Day Upload Deadline */}
       {activeAdminTab === 'datesheet' && <DateSheetDutyManager />}
+
+      {/* Tab 2: Visual Exam & Deadlines Calendar */}
+      {activeAdminTab === 'calendar' && <ExamScheduleCalendar />}
+
+      {/* Tab 3: Upcoming Exams Analytics Summary Chart */}
+      {activeAdminTab === 'analytics' && <UpcomingExamsSummaryChart />}
 
       {/* Main Content Area: Submission Matrix across Subjects & Semesters */}
       {activeAdminTab === 'matrix' && (
@@ -613,8 +691,24 @@ export const AdminDashboard: React.FC = () => {
               </div>
             </div>
 
+            {/* Header info with Add User Button */}
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                id="admin-create-user-btn"
+                type="button"
+                onClick={() => setIsCreatingUser(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm transition active:scale-98 cursor-pointer"
+                title="Create a new teacher, QA, or staff login account"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>Add New User Account</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-100">
             {/* Status Filter buttons */}
-            <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs">
+            <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs overflow-x-auto">
               <button
                 onClick={() => setApprovalStatusFilter('all')}
                 className={`px-3 py-1.5 rounded-lg font-bold transition ${
@@ -729,8 +823,23 @@ export const AdminDashboard: React.FC = () => {
                             {u.name.charAt(0)}
                           </div>
                           <div>
-                            <p className="font-bold text-slate-900">{u.name}</p>
-                            <p className="text-[11px] text-slate-400 font-mono">{u.email}</p>
+                            <div className="flex items-center gap-1.5">
+                              <p className="font-bold text-slate-900">{u.name}</p>
+                              {u.email.toLowerCase() === 'hr.bppra@gmail.com' && (
+                                <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-300">
+                                  Primary Admin
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-500 font-mono flex items-center gap-1">
+                              <span>{u.email}</span>
+                            </p>
+                            <div className="mt-0.5 flex items-center gap-1.5">
+                              <span className="text-[10px] text-slate-400">Password:</span>
+                              <span className="font-mono text-[10px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                {u.password || 'Teacher@123'}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -814,7 +923,19 @@ export const AdminDashboard: React.FC = () => {
                         )}
                       </td>
 
-                      <td className="px-4 py-3.5 text-right space-x-1.5">
+                      <td className="px-4 py-3.5 text-right space-x-1.5 whitespace-nowrap">
+                        {/* Edit User Button */}
+                        <button
+                          id={`edit-user-${u.id}-btn`}
+                          type="button"
+                          onClick={() => setEditingUser(u)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 hover:text-emerald-700 rounded-xl border border-slate-300 shadow-2xs transition active:scale-95 cursor-pointer"
+                          title="Edit user details, email/login ID, password, role, department or phone"
+                        >
+                          <Edit className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Edit</span>
+                        </button>
+
                         {/* If pending or rejected, show Approve button with auto credentials dialog */}
                         {(!isApproved || isRejected) && (
                           <button
@@ -1159,8 +1280,25 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* Tab 3: Curriculum Management (Add Subjects, Semesters & Credit Hours) */}
+      {/* Tab 6: Curriculum Management (Add Subjects, Semesters & Credit Hours) */}
       {activeAdminTab === 'curriculum' && <CurriculumManagement />}
+
+      {/* Tab 7: Student Records Registry & Alumni Archives */}
+      {activeAdminTab === 'students' && (
+        <StudentRegistryManager
+          onOpenNoticeBoardForStudent={(roll) => {
+            setNoticeBoardRoll(roll);
+            setActiveAdminTab('student_portal');
+          }}
+        />
+      )}
+
+      {/* Tab 8: Digital Result Notice Board & Roll Number Slips */}
+      {activeAdminTab === 'student_portal' && (
+        <StudentNoticeBoardPortal
+          initialRollNumber={noticeBoardRoll}
+        />
+      )}
 
       {/* Modal for Admin to Dispatch Paper Submission Call */}
       {showCallModal && (
@@ -1348,6 +1486,65 @@ export const AdminDashboard: React.FC = () => {
         initialCourseCode={whatsAppModalState.initialCourseCode}
         initialCustomNotes={whatsAppModalState.initialCustomNotes}
       />
+
+      {/* Admin Edit User Modal */}
+      {editingUser && (
+        <EditUserModal
+          user={editingUser}
+          isOpen={!!editingUser}
+          onClose={() => setEditingUser(null)}
+          onSave={updateUserData}
+          onDelete={deleteUserAccount}
+          availableSubjects={subjects}
+          availableSemesters={semesters}
+        />
+      )}
+
+      {/* Admin Create / Add New User Account Modal */}
+      {isCreatingUser && (
+        <EditUserModal
+          user={{
+            id: `user-${Date.now()}`,
+            name: '',
+            email: '',
+            password: 'Teacher@123',
+            phone: '+92 300 0000000',
+            whatsappNumber: '+923000000000',
+            role: 'teacher',
+            approvalStatus: 'approved',
+            department: subjects[0] || 'English',
+            assignedSemesters: [1, 2],
+            designation: 'Course Instructor',
+            avatarColor: 'bg-emerald-600',
+            createdAt: new Date().toISOString(),
+          }}
+          isOpen={isCreatingUser}
+          onClose={() => setIsCreatingUser(false)}
+          onSave={(_id, updates) => {
+            const res = signup({
+              name: updates.name || '',
+              email: updates.email || '',
+              password: updates.password || 'Teacher@123',
+              phone: updates.phone || '',
+              whatsappNumber: updates.whatsappNumber || '',
+              role: updates.role || 'teacher',
+              department: updates.department,
+              assignedSemesters: updates.assignedSemesters,
+              designation: updates.designation,
+            });
+            if (res.success && updates.approvalStatus) {
+              if (updates.approvalStatus === 'approved') {
+                approveUserId(res.user!.id);
+              } else if (updates.approvalStatus === 'rejected') {
+                rejectUserId(res.user!.id, 'Created in rejected state');
+              }
+            }
+            return res;
+          }}
+          availableSubjects={subjects}
+          availableSemesters={semesters}
+        />
+      )}
     </div>
   );
 };

@@ -29,6 +29,7 @@ import {
   Settings2,
   Check,
   Image as ImageIcon,
+  CalendarDays,
 } from 'lucide-react';
 import {
   computePaperUploadDeadline,
@@ -38,6 +39,7 @@ import {
 } from '../../utils/whatsapp';
 import { PrintableDateSheetModal } from './PrintableDateSheetModal';
 import { LogoCustomizerModal } from './LogoCustomizerModal';
+import { ExamScheduleCalendar } from '../calendar/ExamScheduleCalendar';
 
 export const DateSheetDutyManager: React.FC = () => {
   const {
@@ -63,6 +65,7 @@ export const DateSheetDutyManager: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSubject, setFilterSubject] = useState<SubjectType | 'All'>('All');
   const [filterShift, setFilterShift] = useState<'All' | 'Morning Shift' | 'Evening Shift'>('All');
+  const [displayMode, setDisplayMode] = useState<'roster' | 'calendar'>('roster');
 
   // Modal State for Create / Edit Date Sheet Entry
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -493,23 +496,54 @@ export const DateSheetDutyManager: React.FC = () => {
         </div>
       </div>
 
-      {/* Date Sheet Table / Cards */}
+      {/* Date Sheet Table / Cards / Calendar */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+        <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
               <Calendar className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900">Official Date Sheet & Teacher Duties Roster</h2>
+              <h2 className="text-base font-bold text-slate-900">Official Date Sheet &amp; Teacher Duties Roster</h2>
               <p className="text-xs text-slate-500">
-                Displaying {filteredRows.length} examination slots with automatic 5-day paper upload deadlines
+                Displaying {filteredRows.length} examination slots with automatic {paperUploadDaysBefore || 5}-day paper upload deadlines
               </p>
             </div>
           </div>
+
+          {/* View Mode Switcher */}
+          <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setDisplayMode('roster')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
+                displayMode === 'roster'
+                  ? 'bg-white text-slate-900 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <span>Roster Table</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDisplayMode('calendar')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
+                displayMode === 'calendar'
+                  ? 'bg-white text-emerald-950 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <CalendarDays className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Visual Calendar</span>
+            </button>
+          </div>
         </div>
 
-        {filteredRows.length === 0 ? (
+        {displayMode === 'calendar' ? (
+          <div className="p-4 sm:p-6 bg-slate-50/50">
+            <ExamScheduleCalendar />
+          </div>
+        ) : filteredRows.length === 0 ? (
           <div className="text-center py-16 px-4">
             <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
             <div className="text-base font-bold text-slate-700">No Date Sheet Entries Found</div>

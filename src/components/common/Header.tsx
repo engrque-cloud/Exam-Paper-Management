@@ -19,9 +19,13 @@ import {
   LogIn,
   KeyRound,
   MessageSquare,
+  Image as ImageIcon,
+  X,
 } from 'lucide-react';
 import { NotificationDrawer } from './NotificationDrawer';
 import { WhatsAppNotificationModal } from './WhatsAppNotificationModal';
+import { LogoCustomizerModal } from '../admin/LogoCustomizerModal';
+import { StudentNoticeBoardPortal } from '../students/StudentNoticeBoardPortal';
 
 export const Header: React.FC = () => {
   const {
@@ -45,6 +49,8 @@ export const Header: React.FC = () => {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false);
+  const [isLogoCustomizerOpen, setIsLogoCustomizerOpen] = useState(false);
+  const [isStudentPortalOpen, setIsStudentPortalOpen] = useState(false);
 
   // QA pending count
   const pendingQACount = papers.filter(p => p.status === 'pending_qa').length;
@@ -158,6 +164,17 @@ export const Header: React.FC = () => {
                 </div>
               )}
 
+              {/* Institutional Logo & Seal Photo Customizer (Available globally across all prints) */}
+              <button
+                id="header-logo-customizer-btn"
+                onClick={() => setIsLogoCustomizerOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-slate-700 hover:text-emerald-900 text-xs font-semibold transition shadow-2xs cursor-pointer"
+                title="Customize College Logo (PNG/JPEG) and Official Seal for All Prints"
+              >
+                <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="hidden md:inline">Logo &amp; Seal</span>
+              </button>
+
               {/* WhatsApp Quick Notification Dispatcher - Strictly Restricted to Admin and Principal */}
               {(currentRole === 'admin' || currentRole === 'principal') && (
                 <button
@@ -170,6 +187,17 @@ export const Header: React.FC = () => {
                   <span className="hidden sm:inline">WhatsApp</span>
                 </button>
               )}
+
+              {/* Student Result Notice Board & Roll Slip Desk */}
+              <button
+                id="header-student-portal-btn"
+                onClick={() => setIsStudentPortalOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-950 text-xs font-bold transition shadow-2xs cursor-pointer"
+                title="Open Student Digital Notice Board, Check Results & Generate Roll Number Slip"
+              >
+                <GraduationCap className="w-3.5 h-3.5 text-emerald-700" />
+                <span className="hidden sm:inline">Student Desk</span>
+              </button>
 
               {/* Notification Button */}
               <button
@@ -352,6 +380,46 @@ export const Header: React.FC = () => {
           isOpen={isWhatsAppOpen}
           onClose={() => setIsWhatsAppOpen(false)}
         />
+      )}
+
+      {/* Global Logo & Official Seal Photo Customizer Modal */}
+      <LogoCustomizerModal
+        isOpen={isLogoCustomizerOpen}
+        onClose={() => setIsLogoCustomizerOpen(false)}
+      />
+
+      {/* Global Student Digital Notice Board & Roll Number Slip Modal */}
+      {isStudentPortalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-xs overflow-y-auto animate-fadeIn">
+          <div className="bg-white border border-slate-200 w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden my-auto flex flex-col max-h-[94vh]">
+            <div className="bg-slate-900 text-white p-4 sm:px-6 flex items-center justify-between border-b border-slate-800 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+                  <GraduationCap className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base">
+                    Student Examination Notice Board &amp; Roll Slip Desk
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Primary Key: Student Roll Number &bull; Gazette Results &bull; Date Sheet &bull; Question Paper Sheets
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsStudentPortalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-6 overflow-y-auto">
+              <StudentNoticeBoardPortal onClose={() => setIsStudentPortalOpen(false)} />
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

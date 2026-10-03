@@ -5,6 +5,9 @@ import { ExamResult, StudentResultEntry } from '../../types';
 export interface CombinedStudentExamProfile {
   studentName: string;
   primaryRollNumber: string;
+  fatherName?: string;
+  registrationNumber?: string;
+  semester?: number;
   allRollNumbers: string[];
   department: string;
   degreeProgram: string;
@@ -305,8 +308,17 @@ export const PrintableCombinedMarksheetCard: React.FC<PrintableCombinedMarksheet
           <p className="text-slate-500 text-[9px]">Examination Cell, GGMDC</p>
         </div>
 
-        <div className="text-center">
-          <div className="w-44 mx-auto border-b-2 border-slate-900 pb-0.5 font-black text-slate-950 font-serif italic text-xs">
+        <div className="text-center relative">
+          {collegeLogoRight ? (
+            <div className="absolute -top-7 left-1/2 -translate-x-1/2 opacity-25 pointer-events-none w-14 h-14">
+              <img
+                src={collegeLogoRight}
+                alt="Official Seal Stamp"
+                className="w-full h-full object-contain"
+              />
+            </div>
+          ) : null}
+          <div className="w-44 mx-auto border-b-2 border-slate-900 pb-0.5 font-black text-slate-950 font-serif italic text-xs relative z-10">
             Prof. Tariq Mahmood
           </div>
           <p className="text-slate-900 font-bold text-[10px] uppercase tracking-tight">

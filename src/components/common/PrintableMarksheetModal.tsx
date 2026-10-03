@@ -1,16 +1,24 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Printer,
   X,
   GraduationCap,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { useExam } from '../../context/ExamContext';
 import { ExamResult, StudentResultEntry } from '../../types';
 import { PrintableMarksheetCard } from './PrintableMarksheetCard';
+import { LogoCustomizerModal } from '../admin/LogoCustomizerModal';
 
 export interface StudentMarksheetRecord {
   rollNumber: string;
   studentName: string;
+  fatherName?: string;
+  registrationNumber?: string;
+  department?: string;
+  semester?: number;
+  session?: string;
+  cgpa?: number;
   courseEntries: {
     course: ExamResult;
     entry: StudentResultEntry;
@@ -33,6 +41,8 @@ export const PrintableMarksheetModal: React.FC<PrintableMarksheetModalProps> = (
     collegeLogo,
     collegeLogoRight,
   } = useExam();
+
+  const [isLogoModalOpen, setIsLogoModalOpen] = useState(false);
 
   if (!isOpen || !record) return null;
 
@@ -71,6 +81,15 @@ export const PrintableMarksheetModal: React.FC<PrintableMarksheetModalProps> = (
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsLogoModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition cursor-pointer"
+              title="Add / change college logo (PNG/JPEG) and seal photo"
+            >
+              <ImageIcon className="w-4 h-4 text-emerald-400" />
+              <span className="hidden sm:inline">Logo &amp; Seal</span>
+            </button>
             <button
               onClick={handlePrint}
               className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-xs font-bold shadow-md transition cursor-pointer"
@@ -122,6 +141,12 @@ export const PrintableMarksheetModal: React.FC<PrintableMarksheetModalProps> = (
           </div>
         </div>
       </div>
+
+      {/* Logo & Seal Photo Customizer */}
+      <LogoCustomizerModal
+        isOpen={isLogoModalOpen}
+        onClose={() => setIsLogoModalOpen(false)}
+      />
     </div>
   );
 };

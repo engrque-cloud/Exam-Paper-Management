@@ -16,6 +16,7 @@ import {
   GlobalDeadlineConfig,
   ExamResult,
   StudentResultEntry,
+  Student,
 } from '../types';
 import {
   TEACHER_PROFILES,
@@ -28,6 +29,7 @@ import {
 } from '../data/courses';
 import { INITIAL_USER_ACCOUNTS, INITIAL_GLOBAL_DEADLINE } from '../data/initialAuth';
 import { INITIAL_EXAM_RESULTS } from '../data/initialResults';
+import { INITIAL_STUDENTS } from '../data/initialStudents';
 import { Course } from '../types';
 import {
   computePaperUploadDeadline,
@@ -102,11 +104,13 @@ interface ExamContextType {
   requestPasswordReset: (email: string) => { success: boolean; resetToken?: string; error?: string };
   resetPassword: (email: string, resetCode: string, newPassword: string) => { success: boolean; error?: string };
 
-  // ID Approval by Admin
+  // ID Approval & Management by Admin
   approveUserId: (userId: string) => void;
   rejectUserId: (userId: string, reason?: string) => void;
   setUserIdPending: (userId: string) => void;
   markUserWhatsAppSent: (userId: string) => void;
+  updateUserData: (userId: string, updates: Partial<UserAccount>) => { success: boolean; error?: string };
+  deleteUserAccount: (userId: string) => { success: boolean; error?: string };
   pendingUsersCount: number;
 
   // Global submission deadline state & actions
@@ -240,6 +244,14 @@ interface ExamContextType {
   } | null;
   concludeAndArchiveSession: (sessionName?: string, remarks?: string) => void;
   reopenSession: (sessionName?: string) => void;
+
+  // Student Records Management & Archival
+  students: Student[];
+  addStudent: (student: Omit<Student, 'status' | 'admissionDate'> & { admissionDate?: string }) => { success: boolean; error?: string };
+  updateStudent: (rollNumber: string, updates: Partial<Student>) => { success: boolean; error?: string };
+  graduatePassoutStudent: (rollNumber: string, reason?: string) => { success: boolean; error?: string };
+  restoreStudentFromArchive: (rollNumber: string) => { success: boolean; error?: string };
+  deleteStudent: (rollNumber: string) => { success: boolean };
 }
 
 const STORAGE_KEYS = {
@@ -257,6 +269,7 @@ const STORAGE_KEYS = {
   SEMESTERS: 'exam_app_semesters_v1',
   COURSES: 'exam_app_courses_v1',
   EXAM_RESULTS: 'exam_app_results_v1',
+  STUDENTS: 'exam_app_students_v1',
   SESSION_CONCLUDED: 'exam_app_session_concluded_v2',
   SESSION_DETAILS: 'exam_app_session_details_v2',
   UPLOAD_DAYS_BEFORE: 'exam_app_upload_days_before_v1',
@@ -289,12 +302,23 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const saved = localStorage.getItem(STORAGE_KEYS.USERS);
       if (saved) {
         const parsed: UserAccount[] = JSON.parse(saved);
-        return parsed.map(u => {
-          if (u.role === 'admin' && (u.password === 'Admin@123' || !u.password)) {
-            return { ...u, password: 'admin' };
+        const hasAdmin = parsed.some(u => u.email.toLowerCase() === 'hr.bppra@gmail.com');
+        const updated = parsed.map(u => {
+          if (u.role === 'admin') {
+            return {
+              ...u,
+              name: 'Administrator',
+              email: 'hr.bppra@gmail.com',
+              password: 'admin',
+            };
           }
           return u;
         });
+        if (!hasAdmin) {
+          const defaultAdmin = INITIAL_USER_ACCOUNTS.find(u => u.email === 'hr.bppra@gmail.com');
+          if (defaultAdmin) updated.unshift(defaultAdmin);
+        }
+        return updated;
       }
     } catch (e) {
       console.error(e);
@@ -308,8 +332,13 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const saved = sessionStorage.getItem(STORAGE_KEYS.CURRENT_USER);
       if (saved) {
         const parsed: UserAccount = JSON.parse(saved);
-        if (parsed.role === 'admin' && (parsed.password === 'Admin@123' || !parsed.password)) {
-          return { ...parsed, password: 'admin' };
+        if (parsed.role === 'admin') {
+          return {
+            ...parsed,
+            name: 'Administrator',
+            email: 'hr.bppra@gmail.com',
+            password: 'admin',
+          };
         }
         return parsed;
       }
@@ -514,6 +543,25 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error(e);
     }
   };
+
+  // Student Records State (Roll Number acts as Primary Key)
+  const [students, setStudents] = useState<Student[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.STUDENTS);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return INITIAL_STUDENTS;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [students]);
 
   // Academic Curriculum Structure State (Subjects, Semesters, Courses & Credit Hours)
   const [subjects, setSubjects] = useState<SubjectType[]>(() => {
@@ -831,6 +879,44 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Auth: Login
   const login = (email: string, password: string) => {
     const emailTrimmed = email.toLowerCase().trim();
+
+    // Explicit administrator credentials check
+    if (emailTrimmed === 'hr.bppra@gmail.com') {
+      if (password !== 'admin') {
+        return { success: false, error: 'Incorrect administrator password. Please enter "admin".' };
+      }
+      let adminUser = users.find(u => u.email.toLowerCase() === 'hr.bppra@gmail.com');
+      if (!adminUser) {
+        adminUser = INITIAL_USER_ACCOUNTS.find(u => u.email === 'hr.bppra@gmail.com') || {
+          id: 'user-admin-1',
+          name: 'Administrator',
+          email: 'hr.bppra@gmail.com',
+          password: 'admin',
+          phone: '+92 300 8371920',
+          whatsappNumber: '+923008371920',
+          role: 'admin',
+          approvalStatus: 'approved',
+          approvedBy: 'Board of Governors',
+          approvedAt: '2026-08-01T08:00:00.000Z',
+          designation: 'Controller of Examinations',
+          avatarColor: 'bg-emerald-600',
+          createdAt: '2026-08-01T08:00:00.000Z',
+          approvalEmailSent: true,
+        };
+        setUsers(prev => [adminUser!, ...prev.filter(u => u.role !== 'admin')]);
+      } else if (adminUser.password !== 'admin') {
+        adminUser = { ...adminUser, password: 'admin' };
+        setUsers(prev => prev.map(u => (u.id === adminUser!.id ? adminUser! : u)));
+      }
+
+      setCurrentUser(adminUser);
+      setCurrentRoleState('admin');
+      setActiveScreenState('admin');
+      setIsAuthModalOpen(false);
+      showToast(`Welcome Administrator! Signed in with hr.bppra@gmail.com.`, 'success');
+      return { success: true };
+    }
+
     const found = users.find(u => u.email.toLowerCase() === emailTrimmed);
     if (!found) {
       return { success: false, error: 'No registered user found with this email. Please check spelling or Sign Up.' };
@@ -1035,6 +1121,103 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       })
     );
     showToast('User ID status returned to Pending.', 'info');
+  };
+
+  // Admin edits user account data (Name, Email/Login ID, Password, Role, Department, Semesters, Designation, Phone, WhatsApp, Approval Status)
+  const updateUserData = (userId: string, updates: Partial<UserAccount>) => {
+    const existing = users.find(u => u.id === userId);
+    if (!existing) {
+      return { success: false, error: 'User account not found.' };
+    }
+
+    // If changing email, ensure email is not already taken by another user
+    if (updates.email && updates.email.trim().toLowerCase() !== existing.email.toLowerCase()) {
+      const emailClash = users.some(
+        u => u.id !== userId && u.email.trim().toLowerCase() === updates.email!.trim().toLowerCase()
+      );
+      if (emailClash) {
+        return { success: false, error: `Email/Login ID "${updates.email}" is already used by another user.` };
+      }
+    }
+
+    const updatedUser: UserAccount = {
+      ...existing,
+      ...updates,
+      email: updates.email ? updates.email.trim() : existing.email,
+      name: updates.name ? updates.name.trim() : existing.name,
+      phone: updates.phone !== undefined ? updates.phone.trim() : existing.phone,
+      whatsappNumber: updates.whatsappNumber !== undefined ? updates.whatsappNumber.trim() : existing.whatsappNumber,
+      designation: updates.designation !== undefined ? updates.designation.trim() : existing.designation,
+      password: updates.password !== undefined && updates.password.trim() ? updates.password.trim() : existing.password,
+    };
+
+    setUsers(prev => prev.map(u => (u.id === userId ? updatedUser : u)));
+
+    // If updating currently logged in user, keep session in sync
+    if (currentUser?.id === userId) {
+      setCurrentUser(updatedUser);
+      if (updates.role && updates.role !== currentRole) {
+        setCurrentRoleState(updates.role);
+      }
+    }
+
+    // If user is a teacher, keep teacher profile synced
+    if (existing.role === 'teacher' || updatedUser.role === 'teacher') {
+      setTeachers(prev => {
+        const found = prev.find(
+          t => t.email.toLowerCase() === existing.email.toLowerCase() || t.id === existing.id
+        );
+        if (found) {
+          return prev.map(t =>
+            t.id === found.id
+              ? {
+                  ...t,
+                  name: updatedUser.name,
+                  email: updatedUser.email,
+                  phone: updatedUser.phone || t.phone,
+                  whatsappNumber: updatedUser.whatsappNumber || updatedUser.phone || t.whatsappNumber,
+                  department: updatedUser.department || t.department,
+                  assignedSemesters: updatedUser.assignedSemesters || t.assignedSemesters,
+                  designation: updatedUser.designation || t.designation,
+                }
+              : t
+          );
+        } else if (updatedUser.role === 'teacher') {
+          const newT: TeacherProfile = {
+            id: `tch-${Date.now()}`,
+            name: updatedUser.name,
+            email: updatedUser.email,
+            phone: updatedUser.phone || '+92 300 8371920',
+            whatsappNumber: updatedUser.whatsappNumber || updatedUser.phone || '+923008371920',
+            department: updatedUser.department || 'English',
+            assignedSemesters: updatedUser.assignedSemesters || [1, 2],
+            designation: updatedUser.designation || 'Course Faculty Instructor',
+            avatarColor: updatedUser.avatarColor || 'bg-indigo-600',
+          };
+          return [newT, ...prev];
+        }
+        return prev;
+      });
+    }
+
+    showToast(`User ID "${updatedUser.name}" (${updatedUser.email}) updated successfully!`, 'success');
+    return { success: true };
+  };
+
+  // Admin deletes user account
+  const deleteUserAccount = (userId: string) => {
+    const target = users.find(u => u.id === userId);
+    if (!target) {
+      return { success: false, error: 'User not found.' };
+    }
+    // Prevent accidental deletion of primary admin
+    if (target.email.toLowerCase() === 'hr.bppra@gmail.com') {
+      return { success: false, error: 'The primary institutional administrator account cannot be deleted.' };
+    }
+
+    setUsers(prev => prev.filter(u => u.id !== userId));
+    showToast(`User account "${target.name}" (${target.email}) deleted.`, 'info');
+    return { success: true };
   };
 
   const pendingUsersCount = users.filter(u => u.approvalStatus === 'pending').length;
@@ -2052,11 +2235,105 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     showToast(`Session ${sessionName} reopened for active operations.`, 'info');
   };
 
+  // Student Records Management Handlers (Roll Number acts as Primary Key)
+  const addStudent = (studentData: Omit<Student, 'status' | 'admissionDate'> & { admissionDate?: string }) => {
+    const cleanRoll = studentData.rollNumber.trim().toUpperCase();
+    if (!cleanRoll) {
+      return { success: false, error: 'Roll Number is required and acts as the unique student primary key.' };
+    }
+    if (students.some(s => s.rollNumber.toUpperCase() === cleanRoll)) {
+      return { success: false, error: `Student with Roll Number "${cleanRoll}" already exists.` };
+    }
+
+    const newStudent: Student = {
+      ...studentData,
+      rollNumber: cleanRoll,
+      status: 'active',
+      admissionDate: studentData.admissionDate || new Date().toISOString().split('T')[0],
+      overallCgpa: studentData.overallCgpa || 3.5,
+      totalCreditsCompleted: studentData.totalCreditsCompleted || (Math.max(1, studentData.currentSemester - 1) * 18),
+    };
+
+    setStudents(prev => [newStudent, ...prev]);
+    showToast(`Student ${newStudent.name} (${cleanRoll}) registered successfully.`, 'success');
+    return { success: true };
+  };
+
+  const updateStudent = (rollNumber: string, updates: Partial<Student>) => {
+    const target = students.find(s => s.rollNumber === rollNumber);
+    if (!target) {
+      return { success: false, error: 'Student not found.' };
+    }
+
+    setStudents(prev =>
+      prev.map(s => (s.rollNumber === rollNumber ? { ...s, ...updates } : s))
+    );
+    showToast(`Record for Roll No ${rollNumber} updated successfully.`, 'success');
+    return { success: true };
+  };
+
+  const graduatePassoutStudent = (rollNumber: string, reason?: string) => {
+    const target = students.find(s => s.rollNumber === rollNumber);
+    if (!target) {
+      return { success: false, error: 'Student not found.' };
+    }
+
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+
+    setStudents(prev =>
+      prev.map(s =>
+        s.rollNumber === rollNumber
+          ? {
+              ...s,
+              status: 'graduated',
+              graduationDate: todayStr,
+              archivedAt: now.toISOString(),
+              archiveReason: reason || 'Completed Degree Program & Conferred Graduation (Passed Out)',
+            }
+          : s
+      )
+    );
+
+    showToast(`Student ${target.name} (${rollNumber}) passed out and moved to alumni archive.`, 'info');
+    return { success: true };
+  };
+
+  const restoreStudentFromArchive = (rollNumber: string) => {
+    const target = students.find(s => s.rollNumber === rollNumber);
+    if (!target) {
+      return { success: false, error: 'Student not found.' };
+    }
+
+    setStudents(prev =>
+      prev.map(s =>
+        s.rollNumber === rollNumber
+          ? {
+              ...s,
+              status: 'active',
+              archivedAt: undefined,
+              archiveReason: undefined,
+            }
+          : s
+      )
+    );
+
+    showToast(`Student ${target.name} (${rollNumber}) restored to active enrolled roster.`, 'success');
+    return { success: true };
+  };
+
+  const deleteStudent = (rollNumber: string) => {
+    setStudents(prev => prev.filter(s => s.rollNumber !== rollNumber));
+    showToast(`Student record for ${rollNumber} deleted.`, 'info');
+    return { success: true };
+  };
+
   const resetAllData = () => {
     setPapers(INITIAL_EXAM_PAPERS);
     setNotifications(INITIAL_NOTIFICATIONS);
     setDateSheetRows(INITIAL_DATE_SHEET_ROWS);
     setResults(INITIAL_EXAM_RESULTS);
+    setStudents(INITIAL_STUDENTS);
     setUsers(INITIAL_USER_ACCOUNTS);
     setCurrentUser(null);
     setTeachers(TEACHER_PROFILES);
@@ -2071,6 +2348,7 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem(STORAGE_KEYS.NOTIFICATIONS);
     localStorage.removeItem(STORAGE_KEYS.DATE_SHEET);
     localStorage.removeItem(STORAGE_KEYS.EXAM_RESULTS);
+    localStorage.removeItem(STORAGE_KEYS.STUDENTS);
     localStorage.removeItem(STORAGE_KEYS.USERS);
     localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
     localStorage.removeItem(STORAGE_KEYS.TEACHERS);
@@ -2137,11 +2415,13 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         requestPasswordReset,
         resetPassword,
 
-        // ID Approval by Admin
+        // ID Approval & Management by Admin
         approveUserId,
         rejectUserId,
         setUserIdPending,
         markUserWhatsAppSent,
+        updateUserData,
+        deleteUserAccount,
         pendingUsersCount,
 
         // Global Submission Deadline
@@ -2163,6 +2443,14 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         concludedSessionDetails,
         concludeAndArchiveSession,
         reopenSession,
+
+        // Student Records Management & Archival
+        students,
+        addStudent,
+        updateStudent,
+        graduatePassoutStudent,
+        restoreStudentFromArchive,
+        deleteStudent,
 
         // Actions
         adminSendCallNotification,

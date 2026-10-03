@@ -35,7 +35,9 @@ import {
   RotateCcw,
   MessageSquare,
   GraduationCap,
+  CalendarDays,
 } from 'lucide-react';
+import { ExamScheduleCalendar } from '../calendar/ExamScheduleCalendar';
 
 export const PrincipalDashboard: React.FC = () => {
   const {
@@ -54,7 +56,7 @@ export const PrincipalDashboard: React.FC = () => {
   } = useExam();
 
   // Active Main Tab - Defaults to Executive Sheet from Govt Girls Model Degree College
-  const [activeDashboardTab, setActiveDashboardTab] = useState<'executive_sheet' | 'session_records' | 'paper_tracking' | 'datesheet' | 'results' | 'marksheets'>('executive_sheet');
+  const [activeDashboardTab, setActiveDashboardTab] = useState<'executive_sheet' | 'session_records' | 'paper_tracking' | 'calendar' | 'datesheet' | 'results' | 'marksheets'>('executive_sheet');
 
   // Filters
   const [subjectFilter, setSubjectFilter] = useState<SubjectType | 'All'>('All');
@@ -272,7 +274,7 @@ export const PrincipalDashboard: React.FC = () => {
       </div>
 
       {/* Principal Multi-Module Navigation Tabs */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 p-1.5 bg-emerald-50/70 rounded-2xl border border-emerald-100">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 p-1.5 bg-emerald-50/70 rounded-2xl border border-emerald-100">
         <button
           onClick={() => setActiveDashboardTab('executive_sheet')}
           className={`py-3 px-2 sm:px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
@@ -319,6 +321,19 @@ export const PrincipalDashboard: React.FC = () => {
               {stalledPapersCount}
             </span>
           )}
+        </button>
+
+        <button
+          onClick={() => setActiveDashboardTab('calendar')}
+          className={`py-3 px-2 sm:px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+            activeDashboardTab === 'calendar'
+              ? 'bg-white text-emerald-950 shadow-sm border border-emerald-200/50'
+              : 'text-slate-600 hover:text-emerald-900 hover:bg-emerald-100/50'
+          }`}
+          title="Interactive Visual Examination & Deadline Calendar"
+        >
+          <CalendarDays className={`w-4 h-4 ${activeDashboardTab === 'calendar' ? 'text-emerald-600' : 'text-slate-400'}`} />
+          <span className="truncate">Visual Calendar</span>
         </button>
 
         <button
@@ -629,6 +644,13 @@ export const PrincipalDashboard: React.FC = () => {
         </div>
       </div>
     </div>
+  )}
+
+  {/* ========================================================================= */}
+  {/* TAB: Interactive Visual Exam & Deadlines Calendar                         */}
+  {/* ========================================================================= */}
+  {activeDashboardTab === 'calendar' && (
+    <ExamScheduleCalendar />
   )}
 
   {/* ========================================================================= */}

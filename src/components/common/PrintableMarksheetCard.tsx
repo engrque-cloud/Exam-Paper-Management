@@ -35,11 +35,12 @@ export const PrintableMarksheetCard: React.FC<PrintableMarksheetCardProps> = ({
   const anyFailed = record.courseEntries.some(c => c.entry.status === 'Fail');
   const overallResultStatus = anyFailed ? 'PROMOTED WITH DEFICIT' : 'PASSED';
 
-  // Primary semester & program details from first course or defaults
+  // Primary semester & program details from record or first course
   const primaryEntry = record.courseEntries[0];
-  const departmentName = primaryEntry?.course.subject || 'Higher Education';
-  const semesterNumber = primaryEntry?.course.semester || 1;
-  const academicSession = primaryEntry?.course.academicSession || 'Fall 2026';
+  const departmentName = record.department || primaryEntry?.course.subject || 'Higher Education';
+  const semesterNumber = record.semester || primaryEntry?.course.semester || 1;
+  const academicSession = record.session || primaryEntry?.course.academicSession || 'Fall 2026';
+  const registrationNo = record.registrationNumber || `GGMDC/QTA/${record.rollNumber}`;
 
   const issueDate = currentDateFormatted || new Date().toLocaleDateString('en-US', {
     month: 'long',
@@ -133,18 +134,23 @@ export const PrintableMarksheetCard: React.FC<PrintableMarksheetCardProps> = ({
             Candidate Name
           </span>
           <span className="font-bold text-slate-900 text-sm">{record.studentName}</span>
+          {record.fatherName && (
+            <span className="text-[11px] text-slate-600 block mt-0.5">S/D/O {record.fatherName}</span>
+          )}
         </div>
         <div>
           <span className="text-slate-500 uppercase text-[10px] font-bold block">
-            Roll Number
+            Roll Number (Primary Key)
           </span>
           <span className="font-mono font-bold text-slate-900 text-sm">{record.rollNumber}</span>
+          <span className="text-[10px] text-slate-500 font-mono block mt-0.5">{registrationNo}</span>
         </div>
         <div>
           <span className="text-slate-500 uppercase text-[10px] font-bold block">
             Department / Major
           </span>
           <span className="font-semibold text-slate-900">{departmentName}</span>
+          <span className="text-[10px] text-slate-500 block">Session: {academicSession}</span>
         </div>
         <div>
           <span className="text-slate-500 uppercase text-[10px] font-bold block">
@@ -153,6 +159,9 @@ export const PrintableMarksheetCard: React.FC<PrintableMarksheetCardProps> = ({
           <span className="font-semibold text-slate-900">
             Semester {semesterNumber} (Regular)
           </span>
+          {record.cgpa && (
+            <span className="text-[10px] text-emerald-800 font-bold block">CGPA: {record.cgpa.toFixed(2)}</span>
+          )}
         </div>
       </div>
 
@@ -298,12 +307,21 @@ export const PrintableMarksheetCard: React.FC<PrintableMarksheetCardProps> = ({
           <p className="text-slate-400 text-[10px]">Academic Records</p>
         </div>
 
-        <div>
-          <div className="w-36 mx-auto border-b border-slate-800 pb-1 mb-1 font-bold text-slate-900 font-serif italic">
+        <div className="relative">
+          {collegeLogoRight ? (
+            <div className="absolute -top-7 left-1/2 -translate-x-1/2 opacity-25 pointer-events-none w-14 h-14">
+              <img
+                src={collegeLogoRight}
+                alt="Official Controller Seal"
+                className="w-full h-full object-contain"
+              />
+            </div>
+          ) : null}
+          <div className="w-36 mx-auto border-b border-slate-800 pb-1 mb-1 font-bold text-slate-900 font-serif italic relative z-10">
             Prof. Tariq Mahmood
           </div>
           <p className="text-slate-600 font-semibold">Controller of Examinations</p>
-          <p className="text-slate-400 text-[10px]">GGMDC, Jinnah Town</p>
+          <p className="text-slate-400 text-[10px]">Official Institutional Seal</p>
         </div>
 
         <div>

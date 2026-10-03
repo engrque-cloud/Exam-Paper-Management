@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useExam } from '../../context/ExamContext';
 import { ExamPaper } from '../../types';
 import {
@@ -12,7 +12,11 @@ import {
   Layers,
   Award,
   BookOpen,
+  Printer,
+  Building2,
+  Image as ImageIcon,
 } from 'lucide-react';
+import { LogoCustomizerModal } from '../admin/LogoCustomizerModal';
 
 interface PaperPreviewModalProps {
   paper: ExamPaper | null;
@@ -20,6 +24,9 @@ interface PaperPreviewModalProps {
 }
 
 export const PaperPreviewModal: React.FC<PaperPreviewModalProps> = ({ paper, onClose }) => {
+  const { collegeLogo, collegeLogoRight, collegeName } = useExam();
+  const [isLogoModalOpen, setIsLogoModalOpen] = useState(false);
+
   if (!paper) return null;
 
   return (
@@ -54,7 +61,24 @@ export const PaperPreviewModal: React.FC<PaperPreviewModalProps> = ({ paper, onC
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setIsLogoModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white hover:bg-emerald-50 text-slate-700 border border-slate-300 shadow-2xs transition cursor-pointer"
+              title="Add / change college logo (PNG/JPEG) and seal photo"
+            >
+              <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="hidden sm:inline">Logo &amp; Seal</span>
+            </button>
+            <button
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white shadow-2xs transition cursor-pointer"
+              title="Print Question Paper"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Print Paper</span>
+            </button>
             <button
               onClick={() => {
                 // Simulate download
@@ -170,22 +194,67 @@ export const PaperPreviewModal: React.FC<PaperPreviewModalProps> = ({ paper, onC
 
           {/* Academic Question Paper Sheet */}
           <div className="bg-white border border-slate-300 rounded-xl shadow-xs p-6 md:p-8 font-serif text-slate-900">
-            {/* Exam Header */}
-            <div className="text-center border-b-2 border-slate-900 pb-4 mb-6">
-              <div className="flex items-center justify-center gap-2 mb-1">
-                <BookOpen className="w-6 h-6 text-slate-800" />
-                <span className="text-xs uppercase tracking-widest font-sans font-bold text-slate-600">
-                  Office of the Controller of Examinations
-                </span>
+            {/* Exam Header with Official Institutional Logo & Seal Photo */}
+            <div className="border-b-2 border-slate-900 pb-4 mb-6">
+              <div className="flex items-center justify-between gap-4 mb-2">
+                {/* Left Logo / Crest */}
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl border-2 border-slate-900 flex items-center justify-center p-1 shrink-0 bg-white shadow-2xs">
+                  {collegeLogo ? (
+                    <img
+                      src={collegeLogo}
+                      alt="College Crest"
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-center">
+                      <Building2 className="w-7 h-7 text-emerald-900" />
+                      <span className="text-[7px] font-black uppercase text-emerald-950 tracking-tighter leading-tight mt-0.5">
+                        GGMDC
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Institution Center Headings */}
+                <div className="flex-1 text-center px-2">
+                  <div className="flex items-center justify-center gap-1.5 mb-0.5">
+                    <BookOpen className="w-4 h-4 text-slate-700" />
+                    <span className="text-[10px] uppercase tracking-widest font-sans font-bold text-slate-600">
+                      Office of the Controller of Examinations
+                    </span>
+                  </div>
+                  <h1 className="text-lg sm:text-xl font-black uppercase tracking-wider text-slate-950 font-serif">
+                    {collegeName || 'Govt. Girls Model Degree College'}
+                  </h1>
+                  <div className="text-xs font-semibold text-slate-700 font-sans mt-0.5">
+                    Affiliated with University of Balochistan &bull; Higher Education Department
+                  </div>
+                  <div className="inline-block mt-1.5 px-3 py-0.5 bg-slate-100 text-slate-900 text-xs font-sans font-bold rounded border border-slate-400">
+                    {paper.examType} &mdash; Academic Session {paper.academicSession}
+                  </div>
+                </div>
+
+                {/* Right Seal Photo */}
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl border-2 border-slate-900 flex items-center justify-center p-1 shrink-0 bg-white shadow-2xs">
+                  {collegeLogoRight ? (
+                    <img
+                      src={collegeLogoRight}
+                      alt="Official Seal"
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-center">
+                      <Award className="w-7 h-7 text-emerald-900" />
+                      <span className="text-[7px] font-black uppercase text-emerald-950 tracking-tighter leading-tight mt-0.5">
+                        SEAL
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
-              <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900 font-sans">
-                UNIVERSITY EXAMINATION COMMISSION
-              </h1>
-              <h2 className="text-sm md:text-base font-medium text-slate-700 mt-0.5">
-                {paper.examType} &mdash; Academic Session {paper.academicSession}
-              </h2>
-              <div className="inline-block mt-2 px-3 py-1 bg-slate-100 text-slate-800 text-xs font-sans font-semibold rounded border border-slate-300">
-                CONFIDENTIAL &bull; QUESTION PAPER
+
+              <div className="text-center font-sans text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1">
+                CONFIDENTIAL &bull; FORMAL EXAMINATION QUESTION PAPER
               </div>
             </div>
 
@@ -343,12 +412,18 @@ export const PaperPreviewModal: React.FC<PaperPreviewModalProps> = ({ paper, onC
         <div className="bg-slate-50 px-6 py-3.5 border-t border-slate-200 flex justify-end">
           <button
             onClick={onClose}
-            className="px-5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-semibold shadow-xs transition"
+            className="px-5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-semibold shadow-xs transition cursor-pointer"
           >
             Close Inspector
           </button>
         </div>
       </div>
+
+      {/* Global Logo & Seal Photo Customizer Modal */}
+      <LogoCustomizerModal
+        isOpen={isLogoModalOpen}
+        onClose={() => setIsLogoModalOpen(false)}
+      />
     </div>
   );
 };
