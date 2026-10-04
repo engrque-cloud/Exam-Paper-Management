@@ -1,4 +1,5 @@
 import { ExamResult, StudentResultEntry } from '../types';
+import { INITIAL_STUDENTS } from './initialStudents';
 
 export const calculateGradeAndGpa = (total: number, max = 100): {
   grade: 'A+' | 'A' | 'B+' | 'B' | 'C' | 'D' | 'F';
@@ -43,26 +44,43 @@ const SAMPLE_NAMES = [
   'Waleed Khalid',
 ];
 
-export const generateSampleStudents = (deptCode: string, count = 18): StudentResultEntry[] => {
-  return Array.from({ length: count }, (_, idx) => {
-    const numStr = String(idx + 1).padStart(3, '0');
-    const roll = `2026-${deptCode.toUpperCase()}-${numStr}`;
-    const name = SAMPLE_NAMES[idx % SAMPLE_NAMES.length];
+export const generateStudentsForCourse = (
+  deptName: string,
+  semester: number,
+  courseCode?: string,
+  _minCount?: number
+): StudentResultEntry[] => {
+  // STRICTLY retrieve registered students enrolled in this course paper
+  // OR matching the department and semester cohort
+  const registered = INITIAL_STUDENTS.filter(s => {
+    if (s.status !== 'active' && s.status) return false;
+    // 1. If student has explicit enrolledCourseCodes, check if this courseCode is enrolled
+    if (courseCode && s.enrolledCourseCodes && s.enrolledCourseCodes.includes(courseCode)) {
+      return true;
+    }
+    // 2. If student has no explicit enrolledCourseCodes list, fallback to department and semester
+    if (!s.enrolledCourseCodes || s.enrolledCourseCodes.length === 0) {
+      return s.department === deptName && Number(s.currentSemester) === Number(semester);
+    }
+    return false;
+  });
 
-    // realistic marks distribution
-    const assignment = Math.floor(Math.random() * 3) + 8; // 8-10 /10
-    const midterm = Math.floor(Math.random() * 6) + 14; // 14-19 /20
-    const finalMarks = Math.floor(Math.random() * 25) + 40; // 40-65 /70
+  return registered.map((s, idx) => {
+    const cgpa = s.overallCgpa || 3.5;
+    const seed = (s.rollNumber.charCodeAt(s.rollNumber.length - 1) || 5) + idx;
+    const assignment = 8 + (seed % 3); // 8-10
+    const midterm = 15 + (seed % 5); // 15-19
+    const finalMarks = Math.min(70, Math.max(38, Math.round((cgpa / 4.0) * 65) + ((seed % 7) - 3)));
     const total = assignment + midterm + finalMarks;
     const percentage = Number(((total / 100) * 100).toFixed(1));
     const { grade, gpa, status } = calculateGradeAndGpa(total, 100);
 
     return {
-      rollNumber: roll,
-      studentName: name,
+      rollNumber: s.rollNumber,
+      studentName: s.name,
       assignmentMarks: assignment,
       midtermMarks: midterm,
-      finalMarks: finalMarks,
+      finalMarks,
       totalMarks: total,
       percentage,
       grade,
@@ -73,12 +91,16 @@ export const generateSampleStudents = (deptCode: string, count = 18): StudentRes
   });
 };
 
-const eng101Students = generateSampleStudents('ENG', 24);
-const eng201Students = generateSampleStudents('ENG', 24);
-const soc101Students = generateSampleStudents('SOC', 20);
-const soc201Students = generateSampleStudents('SOC', 20);
-const isl101Students = generateSampleStudents('ISL', 22);
-const zoo101Students = generateSampleStudents('ZOO', 18);
+export const generateSampleStudents = (deptCode: string, count = 18): StudentResultEntry[] => {
+  return generateStudentsForCourse('English', 1, deptCode, count);
+};
+
+const eng101Students = generateStudentsForCourse('English', 1, 'ENG-101');
+const eng201Students = generateStudentsForCourse('English', 2, 'ENG-201');
+const soc101Students = generateStudentsForCourse('Sociology', 1, 'SOC-101');
+const soc201Students = generateStudentsForCourse('Sociology', 2, 'SOC-201');
+const isl101Students = generateStudentsForCourse('Islamic Studies', 1, 'ISL-101');
+const zoo101Students = generateStudentsForCourse('Zoology', 1, 'ZOO-101');
 
 export const INITIAL_EXAM_RESULTS: ExamResult[] = [
   {

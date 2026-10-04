@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useExam } from '../../context/ExamContext';
 import { Student, SubjectType, SemesterNumber, Course, ExamPaper } from '../../types';
 import {
@@ -22,6 +22,7 @@ import {
   ArrowRight,
   Archive,
   Sparkles,
+  X,
 } from 'lucide-react';
 import { StudentRollNumberSlipModal } from './StudentRollNumberSlipModal';
 import { formatReadableDate } from '../../utils/whatsapp';
@@ -46,70 +47,137 @@ export const StudentNoticeBoardPortal: React.FC<StudentNoticeBoardPortalProps> =
     collegeLogo,
   } = useExam();
 
-  // Search input for roll number (Primary key)
-  const [rollInput, setRollInput] = useState<string>(
-    initialRollNumber || (students[0]?.rollNumber ?? '2026-ENG-001')
-  );
-  const [activeRoll, setActiveRoll] = useState<string>(
-    initialRollNumber || (students[0]?.rollNumber ?? '2026-ENG-001')
-  );
+  // Search input for roll number (Primary key) - blank by default until entered
+  const [rollInput, setRollInput] = useState<string>(initialRollNumber || '');
+  const [activeRoll, setActiveRoll] = useState<string>(initialRollNumber || '');
+  const [hasSearched, setHasSearched] = useState<boolean>(!!initialRollNumber);
 
-  // Selected student
+  // Synchronize when initialRollNumber changes from props
+  useEffect(() => {
+    if (initialRollNumber) {
+      setRollInput(initialRollNumber);
+      setActiveRoll(initialRollNumber);
+      setHasSearched(true);
+    }
+  }, [initialRollNumber]);
+
+  // Selected student - strictly only populated when a valid roll number is searched
   const currentStudent = useMemo(() => {
+    if (!activeRoll.trim() || !hasSearched) return null;
+    const cleanSearch = activeRoll.trim().toUpperCase();
+    const compactSearch = cleanSearch.replace(/[^A-Z0-9]/g, '');
+
     return (
-      students.find(s => s.rollNumber.toUpperCase() === activeRoll.trim().toUpperCase()) ||
-      students[0] ||
-      null
+      students.find(s => {
+        const roll = s.rollNumber.trim().toUpperCase();
+        if (roll === cleanSearch) return true;
+        if (roll.replace(/[^A-Z0-9]/g, '') === compactSearch) return true;
+        if (cleanSearch.length >= 3 && roll.endsWith(cleanSearch)) return true;
+        if (s.registrationNumber && s.registrationNumber.trim().toUpperCase() === cleanSearch) return true;
+        return false;
+      }) || null
     );
-  }, [students, activeRoll]);
+  }, [students, activeRoll, hasSearched]);
+
+  // Quick registered roll numbers across major departments for 1-click test/inspection
+  const suggestedRolls = useMemo(() => {
+    const list: { roll: string; name: string; dept: string }[] = [];
+    const depts = ['English', 'Sociology', 'Islamic Studies', 'Zoology'];
+    depts.forEach(d => {
+      const match = students.find(s => s.department === d && (s.status === 'active' || !s.status));
+      if (match) {
+        list.push({ roll: match.rollNumber, name: match.name, dept: match.department });
+      }
+    });
+    return list;
+  }, [students]);
+
+  const selectRoll = (roll: string) => {
+    setRollInput(roll);
+    setActiveRoll(roll);
+    setHasSearched(true);
+  };
 
   // Roll number slip modal
   const [isSlipModalOpen, setIsSlipModalOpen] = useState(false);
 
-  // Active view tab in portal
-  const [portalTab, setPortalTab] = useState<'notice_board' | 'date_sheet' | 'paper_sheets' | 'all_semesters'>('notice_board');
+  // Active view tab in portal (Notice Board vs Roll Slip vs Date Sheet vs Papers vs All Semesters)
+  const [portalTab, setPortalTab] = useState<'notice_board' | 'roll_slip' | 'date_sheet' | 'paper_sheets' | 'all_semesters'>('notice_board');
 
   // Handle Search
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (rollInput.trim()) {
       setActiveRoll(rollInput.trim().toUpperCase());
+      setHasSearched(true);
     }
   };
 
-  // Quick select candidates
-  const sampleStudents = useMemo(() => {
-    return students.slice(0, 5);
-  }, [students]);
+  const handleClearSearch = () => {
+    setRollInput('');
+    setActiveRoll('');
+    setHasSearched(false);
+  };
 
-  // Department courses for this student's current semester
+  // Relevant enrolled courses for this student (supports multi-paper enrollment across departments)
   const semesterCourses = useMemo(() => {
     if (!currentStudent) return [];
+    // 1. If explicit enrolledCourseCodes are specified, match all enrolled papers across departments
+    if (currentStudent.enrolledCourseCodes && currentStudent.enrolledCourseCodes.length > 0) {
+      const explicit = courses.filter(c => currentStudent.enrolledCourseCodes!.includes(c.code));
+      if (explicit.length > 0) return explicit;
+    }
+    // 2. Also check if student is listed in results of other course papers
+    const fromResultsCodes = results
+      .filter(r => r.students.some(s => s.rollNumber.toUpperCase() === currentStudent.rollNumber.toUpperCase()))
+      .map(r => r.courseCode);
+    if (fromResultsCodes.length > 0) {
+      const fromRes = courses.filter(c => fromResultsCodes.includes(c.code));
+      if (fromRes.length > 0) return fromRes;
+    }
+    // 3. Fallback to department core semester courses
     return courses.filter(
       c =>
         c.subject === currentStudent.department &&
         Number(c.semester) === Number(currentStudent.currentSemester)
     );
-  }, [courses, currentStudent]);
+  }, [courses, results, currentStudent]);
 
-  // Scheduled date sheet rows for this student's department and semester
+  // Scheduled date sheet rows for this student's relevant exam papers across departments
   const scheduledExams = useMemo(() => {
     if (!currentStudent) return [];
-    return dateSheetRows.filter(
-      r =>
+    return dateSheetRows.filter(r => {
+      // 1. If student explicitly has enrolledCourseCodes, match any enrolled paper!
+      if (currentStudent.enrolledCourseCodes && currentStudent.enrolledCourseCodes.length > 0) {
+        if (currentStudent.enrolledCourseCodes.includes(r.courseCode)) return true;
+      }
+      // 2. Or if student has results in this courseCode
+      const hasResult = results.some(
+        res => res.courseCode === r.courseCode && res.students.some(s => s.rollNumber.toUpperCase() === currentStudent.rollNumber.toUpperCase())
+      );
+      if (hasResult) return true;
+      // 3. Fallback to their primary department & semester
+      return (
         r.subject === currentStudent.department &&
         Number(r.semester) === Number(currentStudent.currentSemester)
-    );
-  }, [dateSheetRows, currentStudent]);
+      );
+    });
+  }, [dateSheetRows, results, currentStudent]);
 
-  // Published Gazette Results for this student's department and semester
+  // Published Gazette Results for this student across all enrolled papers
   const publishedResults = useMemo(() => {
     if (!currentStudent) return [];
-    return results.filter(
-      r =>
+    return results.filter(r => {
+      const inResult = r.students.some(
+        s => s.rollNumber.toUpperCase() === currentStudent.rollNumber.toUpperCase()
+      );
+      if (inResult) return true;
+      if (currentStudent.enrolledCourseCodes?.includes(r.courseCode)) return true;
+      return (
         r.subject === currentStudent.department &&
         Number(r.semester) === Number(currentStudent.currentSemester)
-    );
+      );
+    });
   }, [results, currentStudent]);
 
   // Check if student is passed out / archived
@@ -134,7 +202,7 @@ export const StudentNoticeBoardPortal: React.FC<StudentNoticeBoardPortalProps> =
               Student Examination Result &amp; Roll Slip Desk
             </h2>
             <p className="text-xs sm:text-sm text-emerald-100/80 font-medium">
-              Enter candidate <strong className="text-emerald-300">Roll Number (Primary Key)</strong> to check gazetted results on the notice board, generate verified examination roll number slips, and access exam question paper sheets.
+              Enter candidate <strong className="text-emerald-300">Roll Number (Primary Key)</strong> to check gazetted results on the notice board, generate verified examination roll number slips, and access exam question paper sheets across all enrolled papers.
             </p>
           </div>
 
@@ -149,44 +217,110 @@ export const StudentNoticeBoardPortal: React.FC<StudentNoticeBoardPortalProps> =
                   type="text"
                   value={rollInput}
                   onChange={e => setRollInput(e.target.value.toUpperCase())}
-                  placeholder="e.g. 2026-ENG-001"
+                  placeholder="e.g. 2026-0001"
                   className="w-full px-3 py-2 bg-white text-slate-900 rounded-xl font-mono font-black text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 placeholder:text-slate-400 placeholder:font-normal uppercase"
                 />
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-md transition active:scale-95 cursor-pointer shrink-0"
+                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-md transition active:scale-95 cursor-pointer shrink-0 flex items-center gap-1"
                 >
-                  Lookup
+                  <Search className="w-3.5 h-3.5" />
+                  <span>Lookup</span>
                 </button>
-              </div>
-
-              {/* Quick Suggestion Pills */}
-              <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                <span className="text-[10px] text-emerald-300 font-semibold">Quick pick:</span>
-                {sampleStudents.map(s => (
+                {activeRoll && (
                   <button
-                    key={s.rollNumber}
                     type="button"
-                    onClick={() => {
-                      setRollInput(s.rollNumber);
-                      setActiveRoll(s.rollNumber);
-                    }}
-                    className={`text-[10px] font-mono px-2 py-0.5 rounded-lg border transition ${
-                      activeRoll === s.rollNumber
-                        ? 'bg-emerald-400 text-slate-950 font-bold border-emerald-300'
-                        : 'bg-white/10 text-emerald-200 hover:bg-white/20 border-white/10'
-                    }`}
+                    onClick={handleClearSearch}
+                    className="p-2 bg-white/20 hover:bg-white/30 text-white rounded-xl text-xs transition cursor-pointer shrink-0"
+                    title="Clear search"
                   >
-                    {s.rollNumber}
+                    <X className="w-4 h-4" />
                   </button>
-                ))}
+                )}
               </div>
+              <p className="text-[10px] text-emerald-200/80">
+                Primary Key: <span className="font-mono font-bold text-white">YYYY-XXXX</span> (e.g. 2026-0001, not tied to department code)
+              </p>
             </form>
           </div>
         </div>
       </div>
 
-      {currentStudent ? (
+      {!hasSearched || !activeRoll.trim() ? (
+        <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-12 text-center shadow-xs space-y-6">
+          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-3xl bg-emerald-50 border-2 border-emerald-100 flex items-center justify-center text-emerald-700 mx-auto shadow-inner">
+            <Search className="w-8 h-8 sm:w-10 sm:h-10 text-emerald-600 animate-pulse" />
+          </div>
+          <div className="max-w-xl mx-auto space-y-2">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Privacy Protected Examination Desk</span>
+            </div>
+            <h3 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+              No Data Displayed — Enter Roll Number
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
+              Examination results and verified Roll Number Slips are protected records. No student data or marks are displayed until a valid Roll Number is entered in the search box above.
+            </p>
+          </div>
+
+          {/* Quick Clickable Roll Suggestions */}
+          {suggestedRolls.length > 0 && (
+            <div className="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-200 max-w-xl mx-auto text-left">
+              <span className="text-[11px] font-bold text-emerald-950 uppercase tracking-wider block mb-2">
+                Click any registered Roll Number to inspect data:
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {suggestedRolls.map(s => (
+                  <button
+                    key={s.roll}
+                    type="button"
+                    onClick={() => selectRoll(s.roll)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-600 hover:text-white border border-emerald-300 text-xs font-bold text-emerald-900 transition shadow-2xs cursor-pointer group"
+                  >
+                    <span className="font-mono">{s.roll}</span>
+                    <span className="text-[10px] text-slate-500 group-hover:text-emerald-100">
+                      ({s.name} - {s.dept})
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl mx-auto text-left pt-2">
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-start gap-3">
+              <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+                <Award className="w-4 h-4" />
+              </div>
+              <div>
+                <h5 className="font-bold text-xs text-slate-900">Result Notice Board</h5>
+                <p className="text-[11px] text-slate-500 mt-0.5">Official gazetted grades, marks breakdown, and standing.</p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-start gap-3">
+              <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center shrink-0">
+                <Printer className="w-4 h-4" />
+              </div>
+              <div>
+                <h5 className="font-bold text-xs text-slate-900">Roll Number Slip</h5>
+                <p className="text-[11px] text-slate-500 mt-0.5">Official printable slip with exam venue, shift, and QR code.</p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-start gap-3">
+              <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center shrink-0">
+                <Calendar className="w-4 h-4" />
+              </div>
+              <div>
+                <h5 className="font-bold text-xs text-slate-900">Exam Date Sheet</h5>
+                <p className="text-[11px] text-slate-500 mt-0.5">Scheduled exam dates, shift timings, and hall allocations.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : currentStudent ? (
         <>
           {/* Candidate Dossier Banner */}
           <div className="bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden">
@@ -225,11 +359,23 @@ export const StudentNoticeBoardPortal: React.FC<StudentNoticeBoardPortalProps> =
               <div className="flex items-center gap-2 flex-wrap shrink-0">
                 <button
                   type="button"
-                  onClick={() => setIsSlipModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xs transition active:scale-95 cursor-pointer"
+                  onClick={() => setPortalTab('roll_slip')}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer border ${
+                    portalTab === 'roll_slip'
+                      ? 'bg-emerald-800 text-white border-emerald-900 shadow-xs'
+                      : 'bg-white text-emerald-950 border-emerald-300 hover:bg-emerald-50'
+                  }`}
                 >
-                  <Printer className="w-4 h-4" />
-                  <span>Get Roll Number Slip</span>
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>View Roll Slip</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsSlipModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xs transition active:scale-95 cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print Slip</span>
                 </button>
               </div>
             </div>
@@ -271,6 +417,19 @@ export const StudentNoticeBoardPortal: React.FC<StudentNoticeBoardPortalProps> =
 
               <button
                 type="button"
+                onClick={() => setPortalTab('roll_slip')}
+                className={`flex items-center gap-2 py-3 px-3 border-b-2 transition cursor-pointer shrink-0 ${
+                  portalTab === 'roll_slip'
+                    ? 'border-emerald-600 text-emerald-950 bg-emerald-50/50'
+                    : 'border-transparent text-slate-600 hover:text-slate-950'
+                }`}
+              >
+                <Printer className="w-4 h-4 text-emerald-600" />
+                <span>2. Official Roll Number Slip (Admit Card)</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setPortalTab('date_sheet')}
                 className={`flex items-center gap-2 py-3 px-3 border-b-2 transition cursor-pointer shrink-0 ${
                   portalTab === 'date_sheet'
@@ -279,7 +438,7 @@ export const StudentNoticeBoardPortal: React.FC<StudentNoticeBoardPortalProps> =
                 }`}
               >
                 <Calendar className="w-4 h-4 text-emerald-600" />
-                <span>2. Examination Schedule &amp; Rooms ({scheduledExams.length})</span>
+                <span>3. Examination Schedule &amp; Rooms ({scheduledExams.length})</span>
               </button>
 
               <button
@@ -292,7 +451,7 @@ export const StudentNoticeBoardPortal: React.FC<StudentNoticeBoardPortalProps> =
                 }`}
               >
                 <BookOpen className="w-4 h-4 text-emerald-600" />
-                <span>3. Course Exam Paper Sheets ({semesterCourses.length})</span>
+                <span>4. Course Exam Paper Sheets ({semesterCourses.length})</span>
               </button>
 
               <button
@@ -305,7 +464,7 @@ export const StudentNoticeBoardPortal: React.FC<StudentNoticeBoardPortalProps> =
                 }`}
               >
                 <Layers className="w-4 h-4 text-emerald-600" />
-                <span>4. All-Semester Record &amp; Archive Ledger</span>
+                <span>5. All-Semester Record &amp; Archive Ledger</span>
               </button>
             </div>
 
@@ -361,60 +520,68 @@ export const StudentNoticeBoardPortal: React.FC<StudentNoticeBoardPortalProps> =
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 bg-white">
-                        {semesterCourses.map((c, idx) => {
-                          const res = publishedResults.find(r => r.courseCode === c.code);
-                          const entry = res?.students.find(
-                            s => s.rollNumber.toUpperCase() === currentStudent.rollNumber.toUpperCase()
-                          );
+                        {semesterCourses.length === 0 ? (
+                          <tr>
+                            <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                              No enrolled courses found for Semester {currentStudent.currentSemester}.
+                            </td>
+                          </tr>
+                        ) : (
+                          semesterCourses.map((c, idx) => {
+                            const res = publishedResults.find(r => r.courseCode === c.code);
+                            const entry = res?.students.find(
+                              s => s.rollNumber.toUpperCase() === currentStudent.rollNumber.toUpperCase()
+                            );
 
-                          // Use realistic deterministic scores if gazette hasn't entered student record specifically
-                          const assignMarks = entry?.assignmentMarks ?? (9 - (idx % 2));
-                          const midMarks = entry?.midtermMarks ?? (18 - (idx % 3));
-                          const finalMarks = entry?.finalMarks ?? (56 - (idx % 4));
-                          const total = entry?.totalMarks ?? (assignMarks + midMarks + finalMarks);
-                          const grade = entry?.grade ?? (total >= 80 ? 'A' : total >= 70 ? 'B+' : 'B');
-                          const gpa = entry?.gpa ?? (total >= 80 ? 3.85 : total >= 70 ? 3.4 : 3.0);
-                          const status = entry?.status ?? 'Pass';
+                            // Use realistic deterministic scores if gazette hasn't entered student record specifically
+                            const assignMarks = entry?.assignmentMarks ?? (9 - (idx % 2));
+                            const midMarks = entry?.midtermMarks ?? (18 - (idx % 3));
+                            const finalMarks = entry?.finalMarks ?? (56 - (idx % 4));
+                            const total = entry?.totalMarks ?? (assignMarks + midMarks + finalMarks);
+                            const grade = entry?.grade ?? (total >= 80 ? 'A' : total >= 70 ? 'B+' : 'B');
+                            const gpa = entry?.gpa ?? (total >= 80 ? 3.85 : total >= 70 ? 3.4 : 3.0);
+                            const status = entry?.status ?? 'Pass';
 
-                          return (
-                            <tr key={c.id} className="hover:bg-slate-50/80">
-                              <td className="px-3 py-2.5">
-                                <span className="font-mono font-bold text-emerald-950 mr-1.5">
-                                  {c.code}
-                                </span>
-                                <span className="font-medium text-slate-800">
-                                  {c.title}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2.5 text-center font-medium text-slate-600 tabular-nums">
-                                {c.creditHours}
-                              </td>
-                              <td className="px-3 py-2.5 text-center font-medium text-slate-700 tabular-nums">
-                                {assignMarks}
-                              </td>
-                              <td className="px-3 py-2.5 text-center font-medium text-slate-700 tabular-nums">
-                                {midMarks}
-                              </td>
-                              <td className="px-3 py-2.5 text-center font-medium text-slate-700 tabular-nums">
-                                {finalMarks}
-                              </td>
-                              <td className="px-3 py-2.5 text-center font-black text-slate-950 tabular-nums">
-                                {total}
-                              </td>
-                              <td className="px-3 py-2.5 text-center font-bold text-emerald-800">
-                                {grade}
-                              </td>
-                              <td className="px-3 py-2.5 text-center font-bold text-indigo-900 tabular-nums">
-                                {gpa.toFixed(2)}
-                              </td>
-                              <td className="px-3 py-2.5 text-center">
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                  {status}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
+                            return (
+                              <tr key={c.id} className="hover:bg-slate-50/80">
+                                <td className="px-3 py-2.5">
+                                  <span className="font-mono font-bold text-emerald-950 mr-1.5">
+                                    {c.code}
+                                  </span>
+                                  <span className="font-medium text-slate-800">
+                                    {c.title}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2.5 text-center font-medium text-slate-600 tabular-nums">
+                                  {c.creditHours}
+                                </td>
+                                <td className="px-3 py-2.5 text-center font-medium text-slate-700 tabular-nums">
+                                  {assignMarks}
+                                </td>
+                                <td className="px-3 py-2.5 text-center font-medium text-slate-700 tabular-nums">
+                                  {midMarks}
+                                </td>
+                                <td className="px-3 py-2.5 text-center font-medium text-slate-700 tabular-nums">
+                                  {finalMarks}
+                                </td>
+                                <td className="px-3 py-2.5 text-center font-black text-slate-950 tabular-nums">
+                                  {total}
+                                </td>
+                                <td className="px-3 py-2.5 text-center font-bold text-emerald-800">
+                                  {grade}
+                                </td>
+                                <td className="px-3 py-2.5 text-center font-bold text-indigo-900 tabular-nums">
+                                  {gpa.toFixed(2)}
+                                </td>
+                                <td className="px-3 py-2.5 text-center">
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                    {status}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -439,6 +606,279 @@ export const StudentNoticeBoardPortal: React.FC<StudentNoticeBoardPortalProps> =
                           {currentStudent.overallCgpa?.toFixed(2) || '3.82'}
                         </span>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 2: Official Examination Roll Number Slip (Admit Card) */}
+            {portalTab === 'roll_slip' && (
+              <div className="p-6 space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200">
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                      <Printer className="w-4 h-4 text-emerald-700" />
+                      <span>Verified Examination Roll Number Slip (Admit Card)</span>
+                    </h4>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      Official candidate permit required for admission into the examination centre.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsSlipModalOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs shadow-xs transition active:scale-95 cursor-pointer"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>Print Official Admit Card</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Printable Roll Number Slip Card Document */}
+                <div className="border-2 border-emerald-900/80 p-5 sm:p-7 rounded-2xl relative bg-linear-to-b from-white via-emerald-50/20 to-white shadow-sm">
+                  {/* Corner Decorative Accents */}
+                  <div className="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-emerald-900" />
+                  <div className="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-emerald-900" />
+                  <div className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-emerald-900" />
+                  <div className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-emerald-900" />
+
+                  {/* Header: Institutional Crest & Title */}
+                  <div className="text-center pb-5 border-b-2 border-slate-800 space-y-1 relative">
+                    <div className="flex items-center justify-between gap-4">
+                      {/* Left Logo / Crest */}
+                      <div className="w-16 h-16 rounded-xl bg-emerald-100/60 border border-emerald-300 flex items-center justify-center shrink-0">
+                        {collegeLogo ? (
+                          <img src={collegeLogo} alt="Logo" className="w-12 h-12 object-contain" />
+                        ) : (
+                          <Building2 className="w-8 h-8 text-emerald-800" />
+                        )}
+                      </div>
+
+                      {/* College Title */}
+                      <div className="flex-1 text-center space-y-0.5">
+                        <h1 className="text-lg sm:text-xl font-black text-slate-950 uppercase tracking-tight font-serif">
+                          {collegeName || 'Govt. Girls Model Degree College, Quetta'}
+                        </h1>
+                        <h2 className="text-xs sm:text-sm font-bold text-emerald-950 uppercase tracking-wider">
+                          Office of the Controller of Examinations
+                        </h2>
+                        <p className="text-[11px] text-slate-600 font-medium">
+                          Jinnah Town Campus, Quetta &bull; BS 4-Year Semester Examination System
+                        </p>
+                        <div className="inline-block px-3 py-0.5 rounded-full bg-slate-900 text-white text-[11px] font-bold uppercase tracking-widest mt-1">
+                          Official Roll Number Slip &bull; Examination Admit Card
+                        </div>
+                      </div>
+
+                      {/* Right QR / Verification Code Placeholder */}
+                      <div className="w-16 h-16 border border-slate-300 rounded-lg p-1 bg-white flex flex-col items-center justify-center shrink-0">
+                        <QrCode className="w-10 h-10 text-slate-700" />
+                        <span className="text-[8px] font-mono text-slate-500 font-bold">VERIFIED</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Candidate Dossier (Identification Info) */}
+                  <div className="py-4 border-b border-slate-200 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                    <div className="sm:col-span-2 space-y-2">
+                      <div className="grid grid-cols-2 gap-y-2 gap-x-4">
+                        <div>
+                          <span className="text-[10px] text-slate-500 uppercase font-semibold block">
+                            Roll Number (Primary Key):
+                          </span>
+                          <span className="font-mono text-base font-black text-emerald-900 tracking-wide">
+                            {currentStudent.rollNumber}
+                          </span>
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] text-slate-500 uppercase font-semibold block">
+                            Registration Number:
+                          </span>
+                          <span className="font-mono text-xs font-bold text-slate-800">
+                            {currentStudent.registrationNumber}
+                          </span>
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] text-slate-500 uppercase font-semibold block">
+                            Candidate Full Name:
+                          </span>
+                          <span className="font-bold text-slate-900 text-sm">
+                            {currentStudent.name}
+                          </span>
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] text-slate-500 uppercase font-semibold block">
+                            Father&apos;s Name:
+                          </span>
+                          <span className="font-medium text-slate-800 text-xs">
+                            {currentStudent.fatherName}
+                          </span>
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] text-slate-500 uppercase font-semibold block">
+                            Department / Discipline:
+                          </span>
+                          <span className="font-bold text-indigo-900 text-xs">
+                            Department of {currentStudent.department}
+                          </span>
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] text-slate-500 uppercase font-semibold block">
+                            Active Semester &amp; Session:
+                          </span>
+                          <span className="font-bold text-slate-800 text-xs">
+                            Semester {currentStudent.currentSemester} &bull; {currentStudent.session}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Candidate Photograph / Seal Card */}
+                    <div className="flex flex-col items-center justify-center p-3 rounded-xl border border-dashed border-slate-300 bg-slate-50/60 text-center">
+                      <div className="w-20 h-24 rounded-lg bg-slate-200 border border-slate-300 flex items-center justify-center mb-1 text-slate-400">
+                        <User className="w-10 h-10 text-slate-400" />
+                      </div>
+                      <span className="text-[9px] text-slate-500 font-semibold">Affixed Photo</span>
+                      <span className="text-[8px] text-slate-400 font-mono">GGMDC Verified</span>
+                    </div>
+                  </div>
+
+                  {/* Scheduled Examination Paper Timetable Table */}
+                  <div className="py-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-emerald-700" />
+                        Course Examination Dates, Time &amp; Hall Allocation (Semester {currentStudent.currentSemester})
+                      </h4>
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        {scheduledExams.length > 0 ? `${scheduledExams.length} Papers Scheduled` : `${semesterCourses.length} Courses Enrolled`}
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto rounded-xl border border-slate-300">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-100 text-slate-700 text-[10px] font-bold uppercase border-b border-slate-300">
+                          <tr>
+                            <th className="px-3 py-2">Sr.</th>
+                            <th className="px-3 py-2">Course Code &amp; Title</th>
+                            <th className="px-3 py-2">Exam Date &amp; Day</th>
+                            <th className="px-3 py-2">Time Slot</th>
+                            <th className="px-3 py-2">Allocated Hall</th>
+                            <th className="px-3 py-2 text-center">Invigilator Initial</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {scheduledExams.length > 0 ? (
+                            scheduledExams.map((exam, idx) => (
+                              <tr key={exam.id} className="hover:bg-slate-50/70">
+                                <td className="px-3 py-2.5 font-bold text-slate-500 tabular-nums">
+                                  {idx + 1}
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <span className="font-mono font-bold text-emerald-950 mr-1.5">
+                                    {exam.courseCode}
+                                  </span>
+                                  <span className="font-medium text-slate-800">
+                                    {exam.courseTitle}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2.5 font-semibold text-slate-900">
+                                  <div>{formatReadableDate(exam.examDate)}</div>
+                                  <span className="text-[10px] text-slate-500">{exam.dayOfWeek}</span>
+                                </td>
+                                <td className="px-3 py-2.5 font-medium text-slate-800">
+                                  <div>{exam.startTime} – {exam.endTime}</div>
+                                  <span className="text-[10px] text-slate-500">{exam.shift}</span>
+                                </td>
+                                <td className="px-3 py-2.5 font-medium text-slate-700 truncate max-w-[150px]">
+                                  {exam.hallLocation}
+                                </td>
+                                <td className="px-3 py-2.5 text-center">
+                                  <div className="w-14 h-6 border border-dashed border-slate-300 rounded mx-auto" />
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            semesterCourses.map((c, idx) => (
+                              <tr key={c.id} className="hover:bg-slate-50/70">
+                                <td className="px-3 py-2.5 font-bold text-slate-500 tabular-nums">
+                                  {idx + 1}
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <span className="font-mono font-bold text-emerald-950 mr-1.5">
+                                    {c.code}
+                                  </span>
+                                  <span className="font-medium text-slate-800">
+                                    {c.title}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-500 italic">
+                                  Date Sheet Active (See Notice Board)
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-500">
+                                  Morning Shift (09:00 AM)
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-700">
+                                  Central Examination Hall
+                                </td>
+                                <td className="px-3 py-2.5 text-center">
+                                  <div className="w-14 h-6 border border-dashed border-slate-300 rounded mx-auto" />
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Candidate Instructions */}
+                  <div className="pt-2 pb-4 border-t border-slate-200 text-[10px] text-slate-600 space-y-1">
+                    <span className="font-bold uppercase text-slate-800 block text-[11px]">
+                      Mandatory Examination Regulations:
+                    </span>
+                    <ol className="list-decimal pl-4 space-y-0.5">
+                      <li>
+                        This Roll Number Slip (Admit Card) and original CNIC / Student Identity Card are strictly mandatory for entry into the Examination Hall.
+                      </li>
+                      <li>
+                        Candidates must be seated in their designated hall 30 minutes before the scheduled exam commencement time.
+                      </li>
+                      <li>
+                        Mobile phones, programmable smart watches, unauthorized notes, and electronic devices are strictly prohibited inside the hall.
+                      </li>
+                      <li>
+                        Any candidate found possessing unauthorized materials or using unfair means will be disqualified under College Examination Regulations.
+                      </li>
+                    </ol>
+                  </div>
+
+                  {/* Signatures & Seal */}
+                  <div className="pt-6 border-t-2 border-slate-800 grid grid-cols-3 gap-4 text-center text-xs">
+                    <div>
+                      <div className="w-32 border-b border-slate-400 mx-auto mb-1 h-8" />
+                      <span className="font-semibold text-slate-700 text-[10px]">Candidate&apos;s Signature</span>
+                    </div>
+                    <div>
+                      <div className="w-32 border-b border-slate-400 mx-auto mb-1 h-8" />
+                      <span className="font-semibold text-slate-700 text-[10px]">Superintendent Signature</span>
+                    </div>
+                    <div>
+                      <div className="w-32 border-b-2 border-emerald-900 mx-auto mb-1 flex items-center justify-center font-serif text-[10px] font-bold text-emerald-950 h-8">
+                        GGMDC / Controller Exams
+                      </div>
+                      <span className="font-bold text-emerald-950 uppercase text-[10px]">
+                        Controller of Examinations
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -687,12 +1127,46 @@ export const StudentNoticeBoardPortal: React.FC<StudentNoticeBoardPortalProps> =
           </div>
         </>
       ) : (
-        <div className="p-12 text-center text-slate-500 bg-white rounded-3xl border border-slate-200">
-          <User className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-          <h4 className="font-bold text-slate-800 text-base">No student found for roll number &ldquo;{activeRoll}&rdquo;</h4>
-          <p className="text-xs text-slate-500 mt-1">
-            Please verify the roll number primary key or pick one from the quick suggestions above.
+        <div className="p-8 sm:p-12 text-center text-slate-500 bg-white rounded-3xl border border-rose-200 shadow-xs max-w-2xl mx-auto">
+          <div className="w-14 h-14 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto mb-4">
+            <AlertCircle className="w-8 h-8" />
+          </div>
+          <h4 className="font-black text-slate-900 text-lg">
+            No Student Record Found for Roll Number &ldquo;{activeRoll}&rdquo;
+          </h4>
+          <p className="text-xs text-slate-500 mt-2 max-w-md mx-auto leading-relaxed">
+            Please verify that your roll number is typed correctly (format: <span className="font-mono font-bold text-slate-700">YYYY-DEPT-NUM</span>, e.g., 2026-ENG-001) or visit the College Examination Directorate to confirm your student enrollment record.
           </p>
+          {/* Quick Roll Suggestions in Not Found State */}
+          {suggestedRolls.length > 0 && (
+            <div className="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-200 text-left">
+              <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block mb-1.5 text-center">
+                Or select from registered students:
+              </span>
+              <div className="flex flex-wrap justify-center gap-1.5">
+                {suggestedRolls.map(s => (
+                  <button
+                    key={s.roll}
+                    type="button"
+                    onClick={() => selectRoll(s.roll)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-600 hover:text-white border border-slate-300 text-xs font-mono font-bold text-slate-800 transition cursor-pointer"
+                  >
+                    <span>{s.roll}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-5 flex items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+            >
+              Clear &amp; Try Another Roll Number
+            </button>
+          </div>
         </div>
       )}
 

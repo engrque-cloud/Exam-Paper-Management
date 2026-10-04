@@ -82,7 +82,7 @@ export const AdminDashboard: React.FC = () => {
 
   // Admin Top-level Tab state: 'datesheet' vs 'calendar' vs 'analytics' vs 'matrix' vs 'approvals' vs 'curriculum' vs 'students' vs 'student_portal'
   const [activeAdminTab, setActiveAdminTab] = useState<'datesheet' | 'calendar' | 'analytics' | 'matrix' | 'approvals' | 'curriculum' | 'students' | 'student_portal'>('datesheet');
-  const [noticeBoardRoll, setNoticeBoardRoll] = useState<string>('2026-ENG-001');
+  const [noticeBoardRoll, setNoticeBoardRoll] = useState<string>('');
 
   // User Approvals & Editing State
   const [approvalStatusFilter, setApprovalStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');

@@ -28,7 +28,7 @@ import {
   ALL_SEMESTERS,
 } from '../data/courses';
 import { INITIAL_USER_ACCOUNTS, INITIAL_GLOBAL_DEADLINE } from '../data/initialAuth';
-import { INITIAL_EXAM_RESULTS } from '../data/initialResults';
+import { INITIAL_EXAM_RESULTS, calculateGradeAndGpa } from '../data/initialResults';
 import { INITIAL_STUDENTS } from '../data/initialStudents';
 import { Course } from '../types';
 import {
@@ -248,6 +248,14 @@ interface ExamContextType {
   // Student Records Management & Archival
   students: Student[];
   addStudent: (student: Omit<Student, 'status' | 'admissionDate'> & { admissionDate?: string }) => { success: boolean; error?: string };
+  bulkAddStudents: (
+    studentsList: (Omit<Student, 'status' | 'admissionDate'> & { admissionDate?: string })[]
+  ) => {
+    success: boolean;
+    importedCount: number;
+    skippedCount: number;
+    errors?: string[];
+  };
   updateStudent: (rollNumber: string, updates: Partial<Student>) => { success: boolean; error?: string };
   graduatePassoutStudent: (rollNumber: string, reason?: string) => { success: boolean; error?: string };
   restoreStudentFromArchive: (rollNumber: string) => { success: boolean; error?: string };
@@ -671,6 +679,98 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.EXAM_RESULTS, JSON.stringify(results));
   }, [results]);
+
+  // Synchronize exam results with students registered by Admin (enforces rollNumber PK and registered cohort)
+  useEffect(() => {
+    setResults(prevResults => {
+      let hasChanges = false;
+      const registeredRollMap = new Map<string, Student>(students.map(s => [s.rollNumber.toUpperCase(), s]));
+
+      const updated = prevResults.map(res => {
+        let resChanged = false;
+        // Filter out any student entry not registered by Admin in students roster
+        const validStudents = res.students
+          .filter(st => registeredRollMap.has(st.rollNumber.toUpperCase()))
+          .map(st => {
+            const reg = registeredRollMap.get(st.rollNumber.toUpperCase())!;
+            if (st.studentName !== reg.name) {
+              resChanged = true;
+              return { ...st, studentName: reg.name };
+            }
+            return st;
+          });
+
+        if (validStudents.length !== res.students.length) {
+          resChanged = true;
+        }
+
+        // Enrolled students for this course:
+        // 1. Any student whose enrolledCourseCodes includes res.courseCode (multi-paper enrollment across departments)
+        // 2. Or registered cohort matching department and semester
+        const enrolledStudents = students.filter(s => {
+          if (s.status !== 'active' && s.status) return false;
+          if (s.enrolledCourseCodes && s.enrolledCourseCodes.includes(res.courseCode)) {
+            return true;
+          }
+          if (!s.enrolledCourseCodes || s.enrolledCourseCodes.length === 0) {
+            return s.department === res.subject && Number(s.currentSemester) === Number(res.semester);
+          }
+          return false;
+        });
+
+        enrolledStudents.forEach((st, idx) => {
+          if (!validStudents.some(s => s.rollNumber.toUpperCase() === st.rollNumber.toUpperCase())) {
+            resChanged = true;
+            const targetCgpa = st.overallCgpa || 3.5;
+            const seed = (st.rollNumber.charCodeAt(st.rollNumber.length - 1) || 5) + idx;
+            const assign = 8 + (seed % 3);
+            const mid = 15 + (seed % 5);
+            const baseFinal = Math.min(70, Math.max(38, Math.round((targetCgpa / 4.0) * 65) + ((seed % 7) - 3)));
+            const total = assign + mid + baseFinal;
+            const { grade, gpa, status } = calculateGradeAndGpa(total, 100);
+            validStudents.push({
+              rollNumber: st.rollNumber,
+              studentName: st.name,
+              assignmentMarks: assign,
+              midtermMarks: mid,
+              finalMarks: baseFinal,
+              totalMarks: total,
+              percentage: total,
+              grade,
+              gpa,
+              status,
+              remarks: status === 'Pass' ? (gpa >= 3.7 ? 'Distinction' : 'Cleared') : 'Failed in Theory Component',
+            });
+          }
+        });
+
+        if (resChanged) {
+          hasChanges = true;
+          const appeared = validStudents.length;
+          const passed = validStudents.filter(s => s.status === 'Pass').length;
+          const failed = validStudents.filter(s => s.status === 'Fail').length;
+          const passPercentage = appeared > 0 ? Number(((passed / appeared) * 100).toFixed(1)) : 0;
+          const averageGpa = appeared > 0 ? Number((validStudents.reduce((acc, s) => acc + s.gpa, 0) / appeared).toFixed(2)) : 0;
+          const highestMarks = appeared > 0 ? Math.max(...validStudents.map(s => s.totalMarks), 0) : 0;
+
+          return {
+            ...res,
+            totalStudents: appeared,
+            appeared,
+            passed,
+            failed,
+            passPercentage,
+            averageGpa,
+            highestMarks,
+            students: validStudents,
+          };
+        }
+        return res;
+      });
+
+      return hasChanges ? updated : prevResults;
+    });
+  }, [students]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.SCREEN, activeScreen);
@@ -2255,8 +2355,166 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     setStudents(prev => [newStudent, ...prev]);
-    showToast(`Student ${newStudent.name} (${cleanRoll}) registered successfully.`, 'success');
+
+    // Automatically synchronize course results for this student's department and semester
+    const matchingCourses = courses.filter(c => {
+      if (newStudent.enrolledCourseCodes && newStudent.enrolledCourseCodes.length > 0) {
+        return newStudent.enrolledCourseCodes.includes(c.code);
+      }
+      return c.subject === newStudent.department && Number(c.semester) === Number(newStudent.currentSemester);
+    });
+
+    setResults(prevResults => {
+      const updated = [...prevResults];
+      matchingCourses.forEach(course => {
+        const targetCgpa = newStudent.overallCgpa || 3.5;
+        const seed =
+          (newStudent.rollNumber.charCodeAt(newStudent.rollNumber.length - 1) || 5) +
+          (course.code.charCodeAt(course.code.length - 1) || 2);
+        const assign = 8 + (seed % 3);
+        const mid = 15 + (seed % 5);
+        const baseFinal = Math.min(
+          70,
+          Math.max(38, Math.round((targetCgpa / 4.0) * 65) + ((seed % 7) - 3))
+        );
+        const total = assign + mid + baseFinal;
+        const { grade, gpa, status } = calculateGradeAndGpa(total, 100);
+
+        const newEntry: StudentResultEntry = {
+          rollNumber: newStudent.rollNumber,
+          studentName: newStudent.name,
+          assignmentMarks: assign,
+          midtermMarks: mid,
+          finalMarks: baseFinal,
+          totalMarks: total,
+          percentage: total,
+          grade,
+          gpa,
+          status,
+          remarks: status === 'Pass' ? (gpa >= 3.7 ? 'Distinction' : 'Cleared') : 'Failed in Theory Component',
+        };
+
+        const resIdx = updated.findIndex(r => r.courseCode === course.code);
+        if (resIdx >= 0) {
+          const r = updated[resIdx];
+          const exists = r.students.some(
+            s => s.rollNumber.toUpperCase() === newStudent.rollNumber.toUpperCase()
+          );
+          const newStList = exists
+            ? r.students.map(s =>
+                s.rollNumber.toUpperCase() === newStudent.rollNumber.toUpperCase() ? newEntry : s
+              )
+            : [newEntry, ...r.students];
+
+          const appeared = newStList.length;
+          const passed = newStList.filter(s => s.status === 'Pass').length;
+          const failed = newStList.filter(s => s.status === 'Fail').length;
+          const passPercentage =
+            appeared > 0 ? Number(((passed / appeared) * 100).toFixed(1)) : 0;
+          const averageGpa =
+            appeared > 0
+              ? Number((newStList.reduce((acc, s) => acc + s.gpa, 0) / appeared).toFixed(2))
+              : 0;
+          const highestMarks = Math.max(...newStList.map(s => s.totalMarks), 0);
+
+          updated[resIdx] = {
+            ...r,
+            totalStudents: appeared,
+            appeared,
+            passed,
+            failed,
+            passPercentage,
+            averageGpa,
+            highestMarks,
+            students: newStList,
+          };
+        } else {
+          updated.push({
+            id: `res-${course.code.toLowerCase()}`,
+            courseCode: course.code,
+            courseTitle: course.title,
+            subject: course.subject,
+            semester: course.semester,
+            creditHours: course.creditHours,
+            academicSession: newStudent.session || 'Fall 2026',
+            examType: 'Final Term Examination',
+            teacherId: 'tch-auto',
+            teacherName: 'Assigned Course Faculty',
+            teacherEmail: 'faculty@ggmdc.edu.pk',
+            status: 'gazetted_published',
+            totalStudents: 1,
+            appeared: 1,
+            passed: status === 'Pass' ? 1 : 0,
+            failed: status === 'Fail' ? 1 : 0,
+            withheld: 0,
+            passPercentage: status === 'Pass' ? 100 : 0,
+            averageGpa: gpa,
+            highestMarks: total,
+            submittedAt: new Date().toISOString(),
+            ratifiedAt: new Date().toISOString(),
+            ratifiedBy: 'Prof. Dr. Bilquis Jahan (Principal)',
+            gazetteNumber: `GGMDC/GZ-2026/${course.code}`,
+            gazettePublishedAt: new Date().toISOString(),
+            officialRemarks: 'Official Gazette ratified by Academic Executive Board.',
+            students: [newEntry],
+          });
+        }
+      });
+      return updated;
+    });
+
+    showToast(`Student ${newStudent.name} (${cleanRoll}) registered successfully. Results synchronized.`, 'success');
     return { success: true };
+  };
+
+  const bulkAddStudents = (
+    studentsList: (Omit<Student, 'status' | 'admissionDate'> & { admissionDate?: string })[]
+  ) => {
+    if (!studentsList || studentsList.length === 0) {
+      return { success: false, importedCount: 0, skippedCount: 0, errors: ['No student records provided to import.'] };
+    }
+
+    const existingRolls = new Set(students.map(s => s.rollNumber.toUpperCase()));
+    const created: Student[] = [];
+    const skipped: string[] = [];
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    studentsList.forEach(stData => {
+      const cleanRoll = stData.rollNumber.trim().toUpperCase();
+      if (!cleanRoll) {
+        skipped.push('Empty Roll Number');
+        return;
+      }
+      if (existingRolls.has(cleanRoll)) {
+        skipped.push(`Duplicate Roll Number: ${cleanRoll}`);
+        return;
+      }
+
+      existingRolls.add(cleanRoll);
+      const newSt: Student = {
+        ...stData,
+        rollNumber: cleanRoll,
+        status: 'active',
+        admissionDate: stData.admissionDate || todayStr,
+        overallCgpa: stData.overallCgpa || 3.5,
+        totalCreditsCompleted: stData.totalCreditsCompleted || (Math.max(1, stData.currentSemester - 1) * 18),
+      };
+      created.push(newSt);
+    });
+
+    if (created.length > 0) {
+      setStudents(prev => [...created, ...prev]);
+      showToast(`Successfully bulk imported ${created.length} students from CSV.`, 'success');
+    } else {
+      showToast(`No students imported (${skipped.length} duplicates or invalid records skipped).`, 'error');
+    }
+
+    return {
+      success: created.length > 0,
+      importedCount: created.length,
+      skippedCount: skipped.length,
+      errors: skipped,
+    };
   };
 
   const updateStudent = (rollNumber: string, updates: Partial<Student>) => {
@@ -2268,7 +2526,28 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setStudents(prev =>
       prev.map(s => (s.rollNumber === rollNumber ? { ...s, ...updates } : s))
     );
-    showToast(`Record for Roll No ${rollNumber} updated successfully.`, 'success');
+
+    // Sync results entries with updated student name or roll number
+    if (updates.name || updates.rollNumber) {
+      const newName = updates.name;
+      const newRoll = updates.rollNumber ? updates.rollNumber.toUpperCase() : rollNumber;
+      setResults(prev =>
+        prev.map(r => ({
+          ...r,
+          students: r.students.map(st =>
+            st.rollNumber.toUpperCase() === rollNumber.toUpperCase()
+              ? {
+                  ...st,
+                  rollNumber: newRoll,
+                  studentName: newName || st.studentName,
+                }
+              : st
+          ),
+        }))
+      );
+    }
+
+    showToast(`Record for Roll No ${rollNumber} updated successfully across student and exam registers.`, 'success');
     return { success: true };
   };
 
@@ -2324,7 +2603,13 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const deleteStudent = (rollNumber: string) => {
     setStudents(prev => prev.filter(s => s.rollNumber !== rollNumber));
-    showToast(`Student record for ${rollNumber} deleted.`, 'info');
+    setResults(prev =>
+      prev.map(r => ({
+        ...r,
+        students: r.students.filter(s => s.rollNumber.toUpperCase() !== rollNumber.toUpperCase()),
+      }))
+    );
+    showToast(`Student record for ${rollNumber} deleted from roster and exam registers.`, 'info');
     return { success: true };
   };
 
@@ -2447,6 +2732,7 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Student Records Management & Archival
         students,
         addStudent,
+        bulkAddStudents,
         updateStudent,
         graduatePassoutStudent,
         restoreStudentFromArchive,

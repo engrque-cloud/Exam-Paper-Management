@@ -209,13 +209,13 @@ export interface GlobalDeadlineConfig {
 export type StudentStatus = 'active' | 'graduated' | 'archived';
 
 export interface Student {
-  rollNumber: string; // PRIMARY KEY (Unique identifier e.g. "2026-ENG-001")
+  rollNumber: string; // PRIMARY KEY (Unique permanent institutional identifier for student's entire session, e.g. "2026-0001", independent of department code)
   name: string;
   fatherName: string;
-  department: SubjectType; // e.g. "English", "Islamic Studies", "Sociology", "Zoology"
+  department: SubjectType; // Major / Degree Program e.g. "English", "Islamic Studies", "Sociology", "Zoology"
   currentSemester: SemesterNumber; // 1 to 8
-  session: string; // e.g. "2024-2028" or "Fall 2026"
-  registrationNumber: string; // e.g. "GGMDC/QTA/2024/019"
+  session: string; // e.g. "2026-2030"
+  registrationNumber: string; // Institutional registration number e.g. "GGMDC/QTA/2026/0001"
   status: StudentStatus; // 'active' | 'graduated' | 'archived'
   admissionDate: string; // YYYY-MM-DD
   graduationDate?: string; // YYYY-MM-DD when she/he passes out
@@ -228,6 +228,7 @@ export interface Student {
   emergencyContact?: string;
   overallCgpa?: number;
   totalCreditsCompleted?: number;
+  enrolledCourseCodes?: string[]; // Specific exam papers/courses the student is enrolled in across departments (1 student can enroll on multiple papers)
 }
 
 export type ResultStatus =

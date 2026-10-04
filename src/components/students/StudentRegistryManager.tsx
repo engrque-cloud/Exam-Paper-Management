@@ -28,8 +28,10 @@ import {
   Clock,
   Sparkles,
   Download,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { StudentRollNumberSlipModal } from './StudentRollNumberSlipModal';
+import { StudentBulkImportModal } from './StudentBulkImportModal';
 import { formatReadableDate } from '../../utils/whatsapp';
 
 interface StudentRegistryManagerProps {
@@ -66,6 +68,7 @@ export const StudentRegistryManager: React.FC<StudentRegistryManagerProps> = ({
 
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [selectedStudentForSlip, setSelectedStudentForSlip] = useState<Student | null>(null);
   const [viewingProfileStudent, setViewingProfileStudent] = useState<Student | null>(null);
@@ -85,16 +88,18 @@ export const StudentRegistryManager: React.FC<StudentRegistryManagerProps> = ({
   const [formGender, setFormGender] = useState<'Female' | 'Male'>('Female');
   const [formCnic, setFormCnic] = useState('');
   const [formCgpa, setFormCgpa] = useState<number>(3.5);
+  const [formEnrolledCourses, setFormEnrolledCourses] = useState<string[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Auto-generate suggested roll number & registration number when department or session changes
-  const handleGenerateRoll = (dept: SubjectType, sem: number, sess: string) => {
-    const deptPrefix = dept.substring(0, 3).toUpperCase();
+  // Auto-generate suggested roll number & registration number
+  // Primary Key Roll Number is assigned at entry and remains for the entire session.
+  // It does NOT mix with department code (e.g. "2026-0001") so the student can enroll in multiple papers across departments.
+  const handleGenerateRoll = (sess: string) => {
     const yearPrefix = sess.split('-')[0] || '2026';
-    const deptStudents = students.filter(s => s.department === dept);
-    const nextSeq = String(deptStudents.length + 1).padStart(3, '0');
-    const genRoll = `${yearPrefix}-${deptPrefix}-${nextSeq}`;
-    const genReg = `GGMDC/QTA/${yearPrefix}/${deptPrefix}-${nextSeq}`;
+    const totalCount = students.length;
+    const nextSeq = String(totalCount + 1).padStart(4, '0');
+    const genRoll = `${yearPrefix}-${nextSeq}`;
+    const genReg = `GGMDC/QTA/${yearPrefix}/${nextSeq}`;
     setFormRollNumber(genRoll);
     setFormRegNo(genReg);
   };
@@ -113,7 +118,13 @@ export const StudentRegistryManager: React.FC<StudentRegistryManagerProps> = ({
     setFormCnic('');
     setFormCgpa(3.5);
     setFormError(null);
-    handleGenerateRoll(initialDept, 1, '2026-2030');
+    handleGenerateRoll('2026-2030');
+
+    // Pre-populate core semester courses (student can add additional papers across departments)
+    const defaultCourses = courses
+      .filter(c => c.subject === initialDept && Number(c.semester) === 1)
+      .map(c => c.code);
+    setFormEnrolledCourses(defaultCourses);
     setIsAddModalOpen(true);
   };
 
@@ -132,6 +143,14 @@ export const StudentRegistryManager: React.FC<StudentRegistryManagerProps> = ({
     setFormCnic(student.cnic || '');
     setFormCgpa(student.overallCgpa || 3.5);
     setFormError(null);
+
+    // Existing enrolled courses or fallback to semester core
+    const existing = student.enrolledCourseCodes && student.enrolledCourseCodes.length > 0
+      ? student.enrolledCourseCodes
+      : courses
+          .filter(c => c.subject === student.department && Number(c.semester) === Number(student.currentSemester))
+          .map(c => c.code);
+    setFormEnrolledCourses(existing);
     setIsAddModalOpen(true);
   };
 
@@ -166,6 +185,7 @@ export const StudentRegistryManager: React.FC<StudentRegistryManagerProps> = ({
         gender: formGender,
         cnic: formCnic.trim(),
         overallCgpa: Number(formCgpa) || 3.5,
+        enrolledCourseCodes: formEnrolledCourses,
       });
       if (!res.success) {
         setFormError(res.error || 'Failed to update student record.');
@@ -186,6 +206,7 @@ export const StudentRegistryManager: React.FC<StudentRegistryManagerProps> = ({
         gender: formGender,
         cnic: formCnic.trim(),
         overallCgpa: Number(formCgpa) || 3.5,
+        enrolledCourseCodes: formEnrolledCourses,
       });
       if (!res.success) {
         setFormError(res.error || 'Failed to register student.');
@@ -351,6 +372,17 @@ export const StudentRegistryManager: React.FC<StudentRegistryManagerProps> = ({
               </button>
             </div>
 
+            {/* Bulk Import from CSV Button */}
+            <button
+              type="button"
+              onClick={() => setIsBulkImportOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition active:scale-95 cursor-pointer border border-slate-700"
+              title="Bulk import student roster from CSV or Excel file"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+              <span>Bulk Import (CSV)</span>
+            </button>
+
             {/* Add Student Button */}
             <button
               type="button"
@@ -502,6 +534,20 @@ export const StudentRegistryManager: React.FC<StudentRegistryManagerProps> = ({
                           <span className="text-slate-300">&bull;</span>
                           <span className="text-slate-500">{student.session}</span>
                         </div>
+                        {student.enrolledCourseCodes && student.enrolledCourseCodes.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5 max-w-[220px]">
+                            {student.enrolledCourseCodes.slice(0, 3).map(cc => (
+                              <span key={cc} className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-900 font-mono text-[9px] font-bold border border-emerald-200">
+                                {cc}
+                              </span>
+                            ))}
+                            {student.enrolledCourseCodes.length > 3 && (
+                              <span className="text-[9px] text-slate-500 font-semibold self-center">
+                                +{student.enrolledCourseCodes.length - 3} papers
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
 
                       {/* Reg No */}
@@ -708,12 +754,12 @@ export const StudentRegistryManager: React.FC<StudentRegistryManagerProps> = ({
                     value={formRollNumber}
                     disabled={!!editingStudent}
                     onChange={e => setFormRollNumber(e.target.value.toUpperCase())}
-                    placeholder="e.g. 2026-ENG-001"
+                    placeholder="e.g. 2026-0001"
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono font-bold text-emerald-950 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-slate-100 disabled:text-slate-500"
                     required
                   />
                   <span className="text-[10px] text-slate-500 mt-0.5 block">
-                    Must be unique. Primary identification key across all semesters.
+                    Permanent Primary Key for student&apos;s entire session. Does NOT mix with department code (1 student can enroll in multiple papers).
                   </span>
                 </div>
 
@@ -726,7 +772,7 @@ export const StudentRegistryManager: React.FC<StudentRegistryManagerProps> = ({
                     type="text"
                     value={formRegNo}
                     onChange={e => setFormRegNo(e.target.value)}
-                    placeholder="e.g. GGMDC/QTA/2026/001"
+                    placeholder="e.g. GGMDC/QTA/2026/0001"
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
@@ -768,13 +814,7 @@ export const StudentRegistryManager: React.FC<StudentRegistryManagerProps> = ({
                   </label>
                   <select
                     value={formDepartment}
-                    onChange={e => {
-                      const newDept = e.target.value as SubjectType;
-                      setFormDepartment(newDept);
-                      if (!editingStudent) {
-                        handleGenerateRoll(newDept, formSemester, formSession);
-                      }
-                    }}
+                    onChange={e => setFormDepartment(e.target.value as SubjectType)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 font-bold text-indigo-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     required
                   >
@@ -803,6 +843,76 @@ export const StudentRegistryManager: React.FC<StudentRegistryManagerProps> = ({
                       </option>
                     ))}
                   </select>
+                </div>
+
+                {/* Enrolled Papers (1 Student Can Enroll on Multiple Papers Across Departments) */}
+                <div className="sm:col-span-2 p-3.5 bg-emerald-50/60 rounded-2xl border border-emerald-200 space-y-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                    <div>
+                      <label className="block text-[11px] font-bold text-emerald-950 uppercase tracking-wider">
+                        Enrolled Examination Papers ({formEnrolledCourses.length} Selected)
+                      </label>
+                      <p className="text-[10px] text-emerald-800">
+                        Primary Key Roll Number combines results and admit slips across all enrolled papers without mixing department code.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const coreCodes = courses
+                          .filter(c => c.subject === formDepartment && Number(c.semester) === Number(formSemester))
+                          .map(c => c.code);
+                        setFormEnrolledCourses(coreCodes);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-200 hover:bg-emerald-300 text-emerald-950 text-[10px] font-bold transition cursor-pointer self-start sm:self-auto"
+                    >
+                      Reset to Core Semester Papers
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 max-h-40 overflow-y-auto pr-1">
+                    {courses.map(course => {
+                      const isSelected = formEnrolledCourses.includes(course.code);
+                      const isCore = course.subject === formDepartment && Number(course.semester) === Number(formSemester);
+
+                      return (
+                        <label
+                          key={course.id}
+                          className={`flex items-start gap-2 p-2 rounded-xl border text-xs cursor-pointer transition select-none ${
+                            isSelected
+                              ? 'bg-emerald-700 text-white border-emerald-800 shadow-2xs'
+                              : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                setFormEnrolledCourses(prev => [...prev, course.code]);
+                              } else {
+                                setFormEnrolledCourses(prev => prev.filter(c => c !== course.code));
+                              }
+                            }}
+                            className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <div className="min-w-0">
+                            <span className="font-mono font-bold block text-[11px] truncate">
+                              {course.code}
+                            </span>
+                            <span className="text-[10px] block opacity-90 truncate">
+                              {course.title}
+                            </span>
+                            {isCore && (
+                              <span className={`text-[9px] font-bold uppercase block mt-0.5 ${isSelected ? 'text-emerald-200' : 'text-emerald-700'}`}>
+                                Core Program
+                              </span>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Session */}
@@ -950,6 +1060,14 @@ export const StudentRegistryManager: React.FC<StudentRegistryManagerProps> = ({
         isOpen={!!selectedStudentForSlip}
         onClose={() => setSelectedStudentForSlip(null)}
         student={selectedStudentForSlip}
+      />
+
+      {/* ========================================================================= */}
+      {/* Bulk CSV Student Import Modal */}
+      {/* ========================================================================= */}
+      <StudentBulkImportModal
+        isOpen={isBulkImportOpen}
+        onClose={() => setIsBulkImportOpen(false)}
       />
 
       {/* ========================================================================= */}

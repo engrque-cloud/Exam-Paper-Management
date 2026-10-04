@@ -138,25 +138,30 @@ export const PrintableCombinedMarksheetCard: React.FC<PrintableCombinedMarksheet
         <div>
           <span className="text-slate-500 uppercase text-[9px] font-bold block">Candidate Name</span>
           <span className="font-bold text-slate-900 text-xs sm:text-sm">{profile.studentName}</span>
+          {profile.fatherName && (
+            <span className="text-[10px] text-slate-600 block mt-0.5">S/D/O {profile.fatherName}</span>
+          )}
         </div>
         <div>
-          <span className="text-slate-500 uppercase text-[9px] font-bold block">Roll Number</span>
+          <span className="text-slate-500 uppercase text-[9px] font-bold block">Roll Number (PK)</span>
           <span className="font-mono font-bold text-slate-900 text-xs sm:text-sm">
             {profile.primaryRollNumber}
           </span>
-          {profile.allRollNumbers.length > 1 && (
-            <span className="text-[9px] text-slate-500 block truncate">
-              Also enrolled: {profile.allRollNumbers.slice(1).join(', ')}
-            </span>
+          {profile.registrationNumber && (
+            <span className="text-[9px] text-slate-500 font-mono block mt-0.5">{profile.registrationNumber}</span>
           )}
         </div>
         <div>
           <span className="text-slate-500 uppercase text-[9px] font-bold block">Department / Major</span>
           <span className="font-semibold text-slate-900 text-xs">{profile.department}</span>
+          {profile.semester && (
+            <span className="text-[10px] text-slate-500 block">Semester {profile.semester}</span>
+          )}
         </div>
         <div>
           <span className="text-slate-500 uppercase text-[9px] font-bold block">Degree Program</span>
           <span className="font-semibold text-slate-900 text-xs">{profile.degreeProgram}</span>
+          <span className="text-[10px] text-emerald-800 font-bold block">CGPA: {profile.cgpa.toFixed(2)}</span>
         </div>
       </div>
 
