@@ -231,6 +231,23 @@ export interface Student {
   enrolledCourseCodes?: string[]; // Specific exam papers/courses the student is enrolled in across departments (1 student can enroll on multiple papers)
 }
 
+export interface AttendanceRecord {
+  id: string;
+  rollNumber: string; // Student Roll Number (Primary Key, e.g. "2026-0001", unmixed with department code)
+  studentName: string;
+  department: SubjectType;
+  semester: SemesterNumber;
+  courseCode: string; // e.g. "ENG-101", "SOC-101"
+  courseTitle: string;
+  totalClasses: number; // Total lectures/classes held in session, e.g. 48
+  attendedClasses: number; // Lectures attended by candidate, e.g. 38
+  attendancePercentage: number; // e.g. 79.2%
+  isEligible: boolean; // Calculated based on threshold (e.g. >= 75%)
+  isExempted?: boolean; // Medical or Dean special exemption override
+  exemptionReason?: string;
+  lastUpdated: string;
+}
+
 export type ResultStatus =
   | 'draft'
   | 'submitted_by_faculty'

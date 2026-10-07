@@ -2,10 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useExam } from '../../context/ExamContext';
 import {
   COLLEGE_METADATA,
-  INSTITUTIONAL_BENCHMARKS,
   COLLEGE_DEPARTMENTS,
-  COLLEGE_64_COURSES,
-  COLLEGE_DUTY_ROSTER,
 } from '../../data/collegeData';
 import { SubjectType, DutyRosterItem } from '../../types';
 import {
@@ -40,14 +37,135 @@ import {
 } from 'lucide-react';
 
 export const ExecutiveVisualAnalysis: React.FC = () => {
-  const { sendExpediteNotice } = useExam();
+  const { dateSheetRows, papers, results, sendExpediteNotice, courses, subjects, teachers } = useExam();
 
-  // Courses List state (allows dynamic paste & import from user sheet)
-  const [coursesList, setCoursesList] = useState(COLLEGE_64_COURSES);
+  // Custom imported list if user uses Paste / Import CSV, otherwise directly derived from Department table & Teachers Date Sheet
+  const [customImportedList, setCustomImportedList] = useState<any[] | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [rawCsvInput, setRawCsvInput] = useState('');
   const [importNotice, setImportNotice] = useState<string | null>(null);
   const [copiedNotice, setCopiedNotice] = useState(false);
+
+  // Courses List: strictly derived from Department courses table, Papers submitted by teachers, and Teachers Date Sheet
+  const coursesList = useMemo(() => {
+    if (customImportedList && customImportedList.length > 0) {
+      return customImportedList;
+    }
+
+    // Base courses from the official Department Course Catalog
+    const baseCourses = (courses && courses.length > 0 ? courses : []).map(course => {
+      // Find matching paper from teachers submissions
+      const matchingPaper = papers.find(
+        p => p.courseCode.trim().toUpperCase() === course.code.trim().toUpperCase()
+      );
+      // Find matching row from Teachers Date Sheet
+      const matchingDateSheet = dateSheetRows.find(
+        r => r.courseCode.trim().toUpperCase() === course.code.trim().toUpperCase() ||
+             (matchingPaper && r.paperId === matchingPaper.id)
+      );
+      // Find matching result from results table
+      const matchingResult = results.find(
+        r => r.courseCode.trim().toUpperCase() === course.code.trim().toUpperCase()
+      );
+
+      const isPaperSubmitted = (matchingPaper && matchingPaper.status !== 'pending_qa') ||
+                                (matchingDateSheet && matchingDateSheet.paperUploaded);
+
+      const isResultSubmitted = !!matchingResult;
+
+      // Faculty in charge from Teachers Date Sheet, or Paper, or assigned Teacher Profile
+      const assignedTeacher =
+        matchingDateSheet?.paperSetterTeacherName ||
+        matchingPaper?.teacherName ||
+        teachers.find(t => t.id === matchingPaper?.teacherId)?.name ||
+        teachers.find(t => t.department === course.subject)?.name ||
+        'Awaiting Faculty Allocation';
+
+      // Calculate delay in days if exam was conducted in the past and result not yet submitted
+      let resultDelayedDays = 0;
+      if (matchingDateSheet?.examDate && !isResultSubmitted) {
+        const examTime = new Date(matchingDateSheet.examDate).getTime();
+        const nowTime = new Date().getTime();
+        if (nowTime > examTime) {
+          resultDelayedDays = Math.max(0, Math.floor((nowTime - examTime) / (1000 * 60 * 60 * 24)));
+        }
+      }
+
+      return {
+        id: course.id,
+        code: course.code,
+        title: course.title,
+        subject: course.subject,
+        semester: course.semester,
+        creditHours: course.creditHours || 3,
+        examType: (matchingDateSheet?.examType || matchingPaper?.examType || 'Final') as 'Final' | 'Mid' | 'Reappear',
+        paperSubmitted: !!isPaperSubmitted,
+        resultSubmitted: !!isResultSubmitted,
+        resultDelayedDays,
+        assignedTeacher,
+        chiefInvigilator: matchingDateSheet?.chiefInvigilator,
+        assistantInvigilator: matchingDateSheet?.assistantInvigilator,
+        hallLocation: matchingDateSheet?.hallLocation,
+        examDate: matchingDateSheet?.examDate,
+      };
+    });
+
+    // Also append any courses in DateSheetRows that were not in the course catalog
+    dateSheetRows.forEach(row => {
+      const alreadyExists = baseCourses.some(c => c.code.trim().toUpperCase() === row.courseCode.trim().toUpperCase());
+      if (!alreadyExists) {
+        const matchingPaper = papers.find(
+          p => p.id === row.paperId || p.courseCode.trim().toUpperCase() === row.courseCode.trim().toUpperCase()
+        );
+        const matchingResult = results.find(
+          r => r.courseCode.trim().toUpperCase() === row.courseCode.trim().toUpperCase()
+        );
+        const isPaperSubmitted = row.paperUploaded || (matchingPaper && matchingPaper.status !== 'pending_qa');
+        const isResultSubmitted = !!matchingResult;
+
+        let resultDelayedDays = 0;
+        if (row.examDate && !isResultSubmitted) {
+          const examTime = new Date(row.examDate).getTime();
+          const nowTime = new Date().getTime();
+          if (nowTime > examTime) {
+            resultDelayedDays = Math.max(0, Math.floor((nowTime - examTime) / (1000 * 60 * 60 * 24)));
+          }
+        }
+
+        baseCourses.push({
+          id: row.id,
+          code: row.courseCode,
+          title: row.courseTitle,
+          subject: row.subject,
+          semester: row.semester,
+          creditHours: 3,
+          examType: (row.examType || 'Final') as 'Final' | 'Mid' | 'Reappear',
+          paperSubmitted: !!isPaperSubmitted,
+          resultSubmitted: !!isResultSubmitted,
+          resultDelayedDays,
+          assignedTeacher: row.paperSetterTeacherName || row.chiefInvigilator || 'Assigned Faculty',
+          chiefInvigilator: row.chiefInvigilator,
+          assistantInvigilator: row.assistantInvigilator,
+          hallLocation: row.hallLocation,
+          examDate: row.examDate,
+        });
+      }
+    });
+
+    return baseCourses;
+  }, [courses, dateSheetRows, papers, results, teachers, customImportedList]);
+
+  // Operational indicators derived dynamically
+  const operationalIndicators = useMemo(() => {
+    const resultOverdue3d = coursesList.filter(c => (c.resultDelayedDays || 0) > 3).length;
+    const resultDelayed15d = coursesList.filter(c => (c.resultDelayedDays || 0) > 15).length;
+    const reappearPapers = coursesList.filter(c => c.examType === 'Reappear').length;
+    return {
+      resultOverdue3d,
+      resultDelayed15d,
+      reappearPapers,
+    };
+  }, [coursesList]);
 
   // Local state for interactive filtering
   const [selectedDept, setSelectedDept] = useState<SubjectType | 'All'>('All');
@@ -56,18 +174,38 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeAnalysisView, setActiveAnalysisView] = useState<'visual_charts' | 'faculty_papers' | 'course_ledger' | 'delayed_inspector' | 'duty_roster'>('visual_charts');
 
-  // Duty Roster interactive confirmation state
-  const [dutyRoster, setDutyRoster] = useState<DutyRosterItem[]>(COLLEGE_DUTY_ROSTER);
+  // Duty Roster dynamically derived from Teachers Date Sheet
+  const [confirmedDutiesMap, setConfirmedDutiesMap] = useState<Record<string, boolean>>({});
+  const dutyRoster = useMemo(() => {
+    return dateSheetRows.map(row => {
+      const isConfirmed = confirmedDutiesMap[row.id] || row.status === 'Verified' || row.status === 'Conducted';
+      return {
+        id: `duty-${row.id}`,
+        courseCode: row.courseCode,
+        courseTitle: row.courseTitle,
+        subject: row.subject,
+        examType: 'Final' as const,
+        examDate: row.examDate,
+        timeSlot: `${row.startTime} - ${row.endTime}`,
+        shift: row.shift,
+        hallLocation: row.hallLocation,
+        chiefInvigilator: row.chiefInvigilator,
+        assistantInvigilator: row.assistantInvigilator || 'Unassigned',
+        totalCandidates: row.totalCandidates,
+        confirmed: isConfirmed,
+        confirmedAt: isConfirmed ? new Date().toISOString() : undefined,
+        contactNumber: row.chiefInvigilatorPhone || row.paperSetterTeacherPhone || '+92 81 9201000',
+      };
+    });
+  }, [dateSheetRows, confirmedDutiesMap]);
+
   const [noticeSentMap, setNoticeSentMap] = useState<Record<string, boolean>>({});
   const [showPrintModal, setShowPrintModal] = useState(false);
 
   // Quick confirm duty
   const handleConfirmDuty = (dutyId: string) => {
-    setDutyRoster(prev =>
-      prev.map(d =>
-        d.id === dutyId ? { ...d, confirmed: true, confirmedAt: new Date().toISOString() } : d
-      )
-    );
+    const rawId = dutyId.replace(/^duty-/, '');
+    setConfirmedDutiesMap(prev => ({ ...prev, [rawId]: true }));
   };
 
   // Quick expedite notice dispatch
@@ -85,11 +223,60 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
   // Confirmed duties count
   const confirmedDutiesCount = dutyRoster.filter(d => d.confirmed).length;
 
+  // Dynamic department performance metrics derived from Department table & Teachers Date Sheet
+  const departmentPerformance = useMemo(() => {
+    const depts = (subjects && subjects.length > 0 ? subjects : COLLEGE_DEPARTMENTS) as SubjectType[];
+    return depts.map(dept => {
+      const deptCourses = coursesList.filter(c => c.subject === dept);
+      const papersSubmitted = deptCourses.filter(c => c.paperSubmitted).length;
+      const totalPapers = deptCourses.length;
+      const resultsSubmitted = deptCourses.filter(c => c.resultSubmitted).length;
+      const overallCompletion = totalPapers > 0 ? ((papersSubmitted + resultsSubmitted) / (totalPapers * 2)) * 100 : 0;
+      return {
+        department: dept.toUpperCase(),
+        subject: dept,
+        totalPapers,
+        papersSubmitted,
+        resultsSubmitted,
+        totalResults: totalPapers,
+        overallCompletion: Number(overallCompletion.toFixed(1)),
+        status: totalPapers === 0 ? 'No Scheduled Exams' : `${papersSubmitted} of ${totalPapers} Papers Submitted`,
+        activeFaculty: Array.from(new Set(deptCourses.map(c => c.assignedTeacher).filter(t => t && !t.includes('Awaiting')))).join(', ') || 'Awaiting Allocation',
+      };
+    });
+  }, [coursesList, subjects]);
+
+  // Dynamic institutional benchmarks derived from Teachers Date Sheet & Department courses
+  const dynamicBenchmarks = useMemo(() => {
+    const totalPapers = coursesList.length;
+    const papersSubmitted = coursesList.filter(c => c.paperSubmitted).length;
+    const resultsSubmitted = coursesList.filter(c => c.resultSubmitted).length;
+    const paperSubmissionRate = totalPapers > 0 ? (papersSubmitted / totalPapers) * 100 : 0;
+    const resultSubmissionRate = totalPapers > 0 ? (resultsSubmitted / totalPapers) * 100 : 0;
+    const overallCompletion = totalPapers > 0 ? ((papersSubmitted + resultsSubmitted) / (totalPapers * 2)) * 100 : 0;
+
+    return {
+      totalPapers,
+      papersSubmitted,
+      resultsSubmitted,
+      paperSubmissionRate,
+      resultSubmissionRate,
+      overallCompletion: Number(overallCompletion.toFixed(1)),
+      overallCompletionRounded: Math.round(overallCompletion),
+    };
+  }, [coursesList]);
+
   // Copy all teachers and paper names to clipboard
   const handleCopyAllTeachersAndPapers = () => {
+    if (coursesList.length === 0) {
+      navigator.clipboard.writeText('No examination papers currently scheduled in Teachers Date Sheet.');
+      setCopiedNotice(true);
+      setTimeout(() => setCopiedNotice(false), 2000);
+      return;
+    }
     const header = [
       '# GOVT. GIRLS MODEL DEGREE COLLEGE, JINNAH TOWN, QUETTA',
-      '# FACULTY & ASSIGNED PAPERS DIRECTORY (64 COURSES)',
+      `# FACULTY & ASSIGNED PAPERS DIRECTORY (${coursesList.length} COURSES)`,
       '',
       'No.\tTeacher / Examiner Name\tDepartment\tCourse Code\tPaper Title\tExam Type\tPaper Submitted\tResult Submitted',
     ].join('\n');
@@ -192,7 +379,7 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
     });
 
     if (parsed.length > 0) {
-      setCoursesList(parsed);
+      setCustomImportedList(parsed);
       setImportNotice(`Successfully synchronized ${importedCount} teachers and paper names into the system catalog!`);
       setShowImportModal(false);
       setRawCsvInput('');
@@ -340,96 +527,98 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
       {/* 2. Top Primary Metric Cards (Exact numbers from Sheet) */}
       {/* ========================================================================= */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* TOTAL PAPERS: 64 (Final 58 · Mid 4 · Reappear 2) — 91% */}
+        {/* TOTAL PAPERS */}
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/80 relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Total Papers
             </span>
             <span className="text-xs font-black px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100">
-              91%
+              {dynamicBenchmarks.totalPapers > 0 ? `${Math.round(dynamicBenchmarks.paperSubmissionRate)}%` : '0%'}
             </span>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-4xl font-black text-slate-900 tracking-tight">
-              {INSTITUTIONAL_BENCHMARKS.totalPapers}
+              {dynamicBenchmarks.totalPapers}
             </span>
             <span className="text-xs text-slate-400 font-medium">courses scheduled</span>
           </div>
           <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-slate-600">
-            <span>Final 58 &bull; Mid 4 &bull; Reappear 2</span>
+            <span>
+              Final {coursesList.filter(c => c.examType === 'Final').length} &bull; Mid {coursesList.filter(c => c.examType === 'Mid').length} &bull; Reappear {coursesList.filter(c => c.examType === 'Reappear').length}
+            </span>
           </div>
         </div>
 
-        {/* PAPERS SUBMITTED: 59 of 64 total papers — 92% */}
+        {/* PAPERS SUBMITTED */}
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/80 relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Papers Submitted
             </span>
             <span className="text-xs font-black px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100">
-              {Math.round(INSTITUTIONAL_BENCHMARKS.paperSubmissionRate)}%
+              {Math.round(dynamicBenchmarks.paperSubmissionRate)}%
             </span>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-4xl font-black text-emerald-600 tracking-tight">
-              {INSTITUTIONAL_BENCHMARKS.papersSubmitted}
+              {dynamicBenchmarks.papersSubmitted}
             </span>
             <span className="text-xs text-slate-400 font-medium">
-              of {INSTITUTIONAL_BENCHMARKS.totalPapers} total papers
+              of {dynamicBenchmarks.totalPapers} total papers
             </span>
           </div>
           <div className="mt-3">
             <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
               <div
                 className="bg-emerald-500 h-full rounded-full transition-all duration-700"
-                style={{ width: `${(INSTITUTIONAL_BENCHMARKS.papersSubmitted / INSTITUTIONAL_BENCHMARKS.totalPapers) * 100}%` }}
+                style={{ width: `${dynamicBenchmarks.paperSubmissionRate}%` }}
               />
             </div>
           </div>
         </div>
 
-        {/* RESULTS SUBMITTED: 25 of 64 total papers — 39% */}
+        {/* RESULTS SUBMITTED */}
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/80 relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Results Submitted
             </span>
             <span className="text-xs font-black px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-100">
-              {Math.round(INSTITUTIONAL_BENCHMARKS.resultSubmissionRate)}%
+              {Math.round(dynamicBenchmarks.resultSubmissionRate)}%
             </span>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-4xl font-black text-blue-600 tracking-tight">
-              {INSTITUTIONAL_BENCHMARKS.resultsSubmitted}
+              {dynamicBenchmarks.resultsSubmitted}
             </span>
             <span className="text-xs text-slate-400 font-medium">
-              of {INSTITUTIONAL_BENCHMARKS.totalPapers} total papers
+              of {dynamicBenchmarks.totalPapers} total papers
             </span>
           </div>
           <div className="mt-3">
             <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
               <div
                 className="bg-blue-500 h-full rounded-full transition-all duration-700"
-                style={{ width: `${(INSTITUTIONAL_BENCHMARKS.resultsSubmitted / INSTITUTIONAL_BENCHMARKS.totalPapers) * 100}%` }}
+                style={{ width: `${dynamicBenchmarks.resultSubmissionRate}%` }}
               />
             </div>
           </div>
         </div>
 
-        {/* OVERALL COMPLETION: 71.9% ("college-wide average", 72%) */}
+        {/* OVERALL COMPLETION */}
         <div className="bg-gradient-to-br from-emerald-50 to-teal-50 text-slate-900 rounded-2xl p-5 shadow-xs border border-emerald-200 relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
               Overall Completion
             </span>
             <span className="text-xs font-black px-2 py-0.5 rounded-md bg-emerald-600 text-white shadow-2xs">
-              {INSTITUTIONAL_BENCHMARKS.overallCompletionRounded}%
+              {dynamicBenchmarks.overallCompletionRounded}%
             </span>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-4xl font-black text-emerald-900 tracking-tight">
-              {INSTITUTIONAL_BENCHMARKS.overallCompletion}%
+              {dynamicBenchmarks.overallCompletion}%
             </span>
           </div>
           <div className="mt-3 pt-3 border-t border-emerald-200/80 text-xs font-medium text-emerald-700">
@@ -442,23 +631,23 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
       {/* 3. Secondary Operational Status Badges (Exact from Sheet) */}
       {/* ========================================================================= */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {/* RESULT OVERDUE (>3d): 0 */}
+        {/* RESULT OVERDUE (>3d) */}
         <div className="p-4 bg-white rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
           <div>
             <span className="text-xs font-bold text-slate-500 block uppercase">
               Result Overdue (&gt;3d)
             </span>
             <span className="text-2xl font-black text-emerald-600 mt-1 block">
-              {INSTITUTIONAL_BENCHMARKS.operationalIndicators.resultOverdue3d}
+              {operationalIndicators.resultOverdue3d}
             </span>
             <span className="text-[11px] text-emerald-700 font-medium flex items-center gap-1 mt-0.5">
               <CheckCircle2 className="w-3 h-3" />
-              <span>Optimal zero backlog</span>
+              <span>{operationalIndicators.resultOverdue3d === 0 ? 'Optimal zero backlog' : `${operationalIndicators.resultOverdue3d} pending`}</span>
             </span>
           </div>
         </div>
 
-        {/* RESULT DELAYED (>15d): 25 */}
+        {/* RESULT DELAYED (>15d) */}
         <button
           onClick={() => {
             setActiveAnalysisView('delayed_inspector');
@@ -471,17 +660,17 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
               Result Delayed (&gt;15d)
             </span>
             <span className="text-2xl font-black text-rose-600 mt-1 block">
-              {INSTITUTIONAL_BENCHMARKS.operationalIndicators.resultDelayed15d}
+              {operationalIndicators.resultDelayed15d}
             </span>
             <span className="text-[11px] text-rose-700 font-semibold flex items-center gap-1 mt-0.5">
               <AlertTriangle className="w-3 h-3" />
-              <span>Click to inspect 25 courses</span>
+              <span>Click to inspect {delayedCourses.length} courses</span>
             </span>
           </div>
           <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-rose-600 transition" />
         </button>
 
-        {/* REAPPEAR PAPERS: 2 */}
+        {/* REAPPEAR PAPERS */}
         <button
           onClick={() => {
             setActiveAnalysisView('course_ledger');
@@ -494,7 +683,7 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
               Reappear Papers
             </span>
             <span className="text-2xl font-black text-indigo-600 mt-1 block">
-              {INSTITUTIONAL_BENCHMARKS.operationalIndicators.reappearPapers}
+              {operationalIndicators.reappearPapers}
             </span>
             <span className="text-[11px] text-indigo-700 font-semibold flex items-center gap-1 mt-0.5">
               <Award className="w-3 h-3" />
@@ -504,7 +693,7 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
           <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-indigo-600 transition" />
         </button>
 
-        {/* DUTY ROSTER CONFIRMED: 50 of 64 */}
+        {/* DUTY ROSTER CONFIRMED */}
         <button
           onClick={() => setActiveAnalysisView('duty_roster')}
           className="p-4 bg-white hover:bg-blue-50/50 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between text-left transition group cursor-pointer"
@@ -518,7 +707,7 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
             </span>
             <span className="text-[11px] text-blue-700 font-semibold flex items-center gap-1 mt-0.5">
               <Users className="w-3 h-3" />
-              <span>{Math.round((confirmedDutiesCount / dutyRoster.length) * 100)}% verified</span>
+              <span>{dutyRoster.length > 0 ? Math.round((confirmedDutiesCount / dutyRoster.length) * 100) : 0}% verified</span>
             </span>
           </div>
           <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-blue-600 transition" />
@@ -545,7 +734,7 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
               onChange={e => setSelectedDept(e.target.value as SubjectType | 'All')}
               className="text-xs font-semibold py-1.5 px-3 rounded-xl border border-slate-300 bg-white text-slate-800"
             >
-              <option value="All">All 5 Departments</option>
+              <option value="All">All Departments</option>
               {COLLEGE_DEPARTMENTS.map(dept => (
                 <option key={dept} value={dept}>
                   {dept}
@@ -555,9 +744,9 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
           </div>
         </div>
 
-        {/* 5-Department Interactive Performance Grid (Exact values from sheet) */}
+        {/* Department Interactive Performance Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          {INSTITUTIONAL_BENCHMARKS.departmentPerformance.map(perf => {
+          {departmentPerformance.map(perf => {
             const isSelected = selectedDept === perf.subject;
             return (
               <div
@@ -697,7 +886,7 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
           }`}
         >
           <Users className="w-4 h-4 text-blue-600" />
-          <span>Duty Roster ({confirmedDutiesCount}/64)</span>
+          <span>Duty Roster ({confirmedDutiesCount}/{dutyRoster.length})</span>
         </button>
 
         <button
@@ -742,9 +931,14 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
             </div>
 
             <div className="space-y-4">
-              {INSTITUTIONAL_BENCHMARKS.departmentPerformance
-                .filter(d => d.totalPapers > 0)
-                .map(d => {
+              {departmentPerformance.filter(d => d.totalPapers > 0).length === 0 ? (
+                <div className="py-8 text-center text-xs text-slate-500">
+                  No scheduled department exams in date sheet yet.
+                </div>
+              ) : (
+                departmentPerformance
+                  .filter(d => d.totalPapers > 0)
+                  .map(d => {
                   const paperPct = Math.round((d.papersSubmitted / d.totalPapers) * 100);
                   const resultPct = Math.round((d.resultsSubmitted / d.totalResults) * 100);
 
@@ -787,12 +981,13 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
                       </div>
                     </div>
                   );
-                })}
+                })
+              )}
             </div>
 
             <div className="mt-6 pt-4 border-t border-slate-100 text-xs text-slate-500 flex items-center justify-between">
-              <span>Paper Submission Rate: 92% (59/64)</span>
-              <span>Result Submission Rate: 39% (25/64)</span>
+              <span>Paper Submission Rate: {Math.round(dynamicBenchmarks.paperSubmissionRate)}% ({dynamicBenchmarks.papersSubmitted}/{dynamicBenchmarks.totalPapers})</span>
+              <span>Result Submission Rate: {Math.round(dynamicBenchmarks.resultSubmissionRate)}% ({dynamicBenchmarks.resultsSubmitted}/{dynamicBenchmarks.totalPapers})</span>
             </div>
           </div>
 
@@ -809,73 +1004,98 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
                   </h3>
                 </div>
                 <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full">
-                  64 Total Courses
+                  {coursesList.length} Total Courses
                 </span>
               </div>
 
               {/* Exam Types Visual Composition */}
               <div className="space-y-3">
-                <span className="text-xs font-bold text-slate-600 block uppercase">
-                  Exam Type Split (Final 58 &bull; Mid 4 &bull; Reappear 2)
-                </span>
+                {(() => {
+                  const finalCount = coursesList.filter(c => c.examType === 'Final').length;
+                  const midCount = coursesList.filter(c => c.examType === 'Mid').length;
+                  const reappearCount = coursesList.filter(c => c.examType === 'Reappear').length;
+                  const total = coursesList.length;
+                  const finalPct = total > 0 ? Math.round((finalCount / total) * 100) : 0;
+                  const midPct = total > 0 ? Math.round((midCount / total) * 100) : 0;
+                  const repPct = total > 0 ? Math.round((reappearCount / total) * 100) : 0;
 
-                <div className="w-full h-7 rounded-xl overflow-hidden flex shadow-xs border border-slate-200">
-                  <div
-                    style={{ width: `${(58 / 64) * 100}%` }}
-                    className="bg-indigo-600 h-full flex items-center justify-center text-white text-[11px] font-extrabold"
-                    title="Final Examinations: 58 Courses (90.6%)"
-                  >
-                    Final 58 (91%)
-                  </div>
-                  <div
-                    style={{ width: `${(4 / 64) * 100}%` }}
-                    className="bg-amber-500 h-full flex items-center justify-center text-slate-950 text-[11px] font-extrabold"
-                    title="Midterm Examinations: 4 Courses (6.3%)"
-                  >
-                    Mid 4
-                  </div>
-                  <div
-                    style={{ width: `${(2 / 64) * 100}%` }}
-                    className="bg-rose-500 h-full flex items-center justify-center text-white text-[10px] font-extrabold"
-                    title="Reappear Examinations: 2 Courses (3.1%)"
-                  >
-                    Rep 2
-                  </div>
-                </div>
+                  return (
+                    <>
+                      <span className="text-xs font-bold text-slate-600 block uppercase">
+                        Exam Type Split (Final {finalCount} &bull; Mid {midCount} &bull; Reappear {reappearCount})
+                      </span>
 
-                <div className="grid grid-cols-3 gap-2 pt-2 text-xs">
-                  <div className="p-2.5 rounded-xl bg-indigo-50/70 border border-indigo-100">
-                    <span className="text-slate-500 block text-[10px] font-bold">Final Term</span>
-                    <span className="text-lg font-black text-indigo-900">58</span>
-                    <span className="text-[10px] text-slate-400 block">Graduation terminal</span>
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-100">
-                    <span className="text-slate-500 block text-[10px] font-bold">Midterm</span>
-                    <span className="text-lg font-black text-amber-900">4</span>
-                    <span className="text-[10px] text-slate-400 block">Continuous assess</span>
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-rose-50/70 border border-rose-100">
-                    <span className="text-slate-500 block text-[10px] font-bold">Reappear</span>
-                    <span className="text-lg font-black text-rose-900">2</span>
-                    <span className="text-[10px] text-slate-400 block">Supplementary</span>
-                  </div>
-                </div>
+                      <div className="w-full h-7 rounded-xl overflow-hidden flex shadow-xs border border-slate-200 bg-slate-100">
+                        {finalCount > 0 && (
+                          <div
+                            style={{ width: `${(finalCount / total) * 100}%` }}
+                            className="bg-indigo-600 h-full flex items-center justify-center text-white text-[11px] font-extrabold"
+                            title={`Final Examinations: ${finalCount} Courses (${finalPct}%)`}
+                          >
+                            Final {finalCount} ({finalPct}%)
+                          </div>
+                        )}
+                        {midCount > 0 && (
+                          <div
+                            style={{ width: `${(midCount / total) * 100}%` }}
+                            className="bg-amber-500 h-full flex items-center justify-center text-slate-950 text-[11px] font-extrabold"
+                            title={`Midterm Examinations: ${midCount} Courses (${midPct}%)`}
+                          >
+                            Mid {midCount}
+                          </div>
+                        )}
+                        {reappearCount > 0 && (
+                          <div
+                            style={{ width: `${(reappearCount / total) * 100}%` }}
+                            className="bg-rose-500 h-full flex items-center justify-center text-white text-[10px] font-extrabold"
+                            title={`Reappear Examinations: ${reappearCount} Courses (${repPct}%)`}
+                          >
+                            Rep {reappearCount}
+                          </div>
+                        )}
+                        {total === 0 && (
+                          <div className="w-full h-full flex items-center justify-center text-xs text-slate-400 font-medium">
+                            No courses in date sheet
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 pt-2 text-xs">
+                        <div className="p-2.5 rounded-xl bg-indigo-50/70 border border-indigo-100">
+                          <span className="text-slate-500 block text-[10px] font-bold">Final Term</span>
+                          <span className="text-lg font-black text-indigo-900">{finalCount}</span>
+                          <span className="text-[10px] text-slate-400 block">Terminal Exam</span>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-100">
+                          <span className="text-slate-500 block text-[10px] font-bold">Midterm</span>
+                          <span className="text-lg font-black text-amber-900">{midCount}</span>
+                          <span className="text-[10px] text-slate-400 block">Assessment</span>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-rose-50/70 border border-rose-100">
+                          <span className="text-slate-500 block text-[10px] font-bold">Reappear</span>
+                          <span className="text-lg font-black text-rose-900">{reappearCount}</span>
+                          <span className="text-[10px] text-slate-400 block">Supplementary</span>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Duty Roster Visual Status */}
               <div className="mt-6 pt-5 border-t border-slate-100 space-y-2">
                 <div className="flex items-center justify-between text-xs font-bold">
                   <span className="text-slate-700">Duty Roster Staffing</span>
-                  <span className="text-blue-700">{confirmedDutiesCount} Confirmed &bull; {dutyRoster.length - confirmedDutiesCount} Pending</span>
+                  <span className="text-blue-700">{confirmedDutiesCount} Confirmed &bull; {Math.max(0, dutyRoster.length - confirmedDutiesCount)} Pending</span>
                 </div>
                 <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden flex">
                   <div
                     className="bg-emerald-500 h-full transition-all"
-                    style={{ width: `${(confirmedDutiesCount / dutyRoster.length) * 100}%` }}
+                    style={{ width: `${dutyRoster.length > 0 ? (confirmedDutiesCount / dutyRoster.length) * 100 : 0}%` }}
                   />
                   <div
                     className="bg-amber-400 h-full transition-all"
-                    style={{ width: `${((dutyRoster.length - confirmedDutiesCount) / dutyRoster.length) * 100}%` }}
+                    style={{ width: `${dutyRoster.length > 0 ? ((Math.max(0, dutyRoster.length - confirmedDutiesCount)) / dutyRoster.length) * 100 : 0}%` }}
                   />
                 </div>
               </div>
@@ -961,12 +1181,12 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
 
           {/* Department Breakdown Quick Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {INSTITUTIONAL_BENCHMARKS.departmentPerformance.map(dept => {
-              const isCurrentDept = selectedDept === dept.department;
+            {departmentPerformance.map(dept => {
+              const isCurrentDept = selectedDept === dept.subject;
               return (
                 <button
                   key={dept.department}
-                  onClick={() => setSelectedDept(isCurrentDept ? 'All' : (dept.department as SubjectType))}
+                  onClick={() => setSelectedDept(isCurrentDept ? 'All' : dept.subject)}
                   className={`p-3 rounded-2xl border text-left transition ${
                     isCurrentDept
                       ? 'bg-purple-50 border-purple-300 ring-2 ring-purple-500/20'
@@ -1171,14 +1391,14 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
                   Critical Escalation Required
                 </span>
                 <span className="text-xs text-slate-400">
-                  25 of 64 Total Courses
+                  {delayedCourses.length} of {coursesList.length} Total Courses
                 </span>
               </div>
               <h3 className="text-lg font-black text-slate-900 mt-1">
                 Result Delayed (&gt;15 Days) Administrative Inspection
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                The institution has 25 courses where exam was concluded over 15 days ago but final marks ledger has not been uploaded by faculty.
+                The institution has {delayedCourses.length} course{delayedCourses.length === 1 ? '' : 's'} where exam was concluded over 15 days ago but final marks ledger has not been uploaded by faculty.
               </p>
             </div>
 
@@ -1189,10 +1409,11 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
                     handleDispatchNotice(c.code, c.title, c.assignedTeacher, 'Result Delayed >15 Days');
                   });
                 }}
-                className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition"
+                disabled={delayedCourses.length === 0}
+                className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition"
               >
                 <Send className="w-4 h-4" />
-                <span>Issue Bulk Expedite to All 25 Faculty</span>
+                <span>Issue Bulk Expedite to All {delayedCourses.length} Faculty</span>
               </button>
             </div>
           </div>
@@ -1284,12 +1505,15 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => {
-                  setDutyRoster(prev => prev.map(d => ({ ...d, confirmed: true, confirmedAt: new Date().toISOString() })));
+                  const allMap: Record<string, boolean> = {};
+                  dateSheetRows.forEach(r => { allMap[r.id] = true; });
+                  setConfirmedDutiesMap(allMap);
                 }}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition"
+                disabled={dutyRoster.length === 0 || confirmedDutiesCount === dutyRoster.length}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>Confirm All Remaining 14 Duties</span>
+                <span>Confirm All Pending ({Math.max(0, dutyRoster.length - confirmedDutiesCount)}) Duties</span>
               </button>
             </div>
           </div>
@@ -1356,23 +1580,23 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
             </table>
           </div>
           <div className="p-3 bg-slate-50 border-t border-slate-200 text-center text-xs text-slate-500">
-            Showing first 20 rows of 64 total duties &bull; Full roster synchronized with Controller Office
+            Showing {Math.min(20, dutyRoster.length)} of {dutyRoster.length} total duties &bull; Full roster synchronized with Controller Office
           </div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* SUB-VIEW 4: Complete 64-Course Master Catalog Ledger */}
+      {/* SUB-VIEW 4: Complete Master Catalog Ledger */}
       {/* ========================================================================= */}
       {activeAnalysisView === 'course_ledger' && (
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
             <div>
               <h3 className="text-lg font-black text-slate-900">
-                Institutional Course Ledger (64 Courses Total)
+                Institutional Course Ledger ({filteredCourses.length} Courses Total)
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                59 Papers Submitted (92%) &bull; 25 Results Submitted (39%) &bull; 2 Reappear Courses
+                {dynamicBenchmarks.papersSubmitted} Papers Submitted ({Math.round(dynamicBenchmarks.paperSubmissionRate)}%) &bull; {dynamicBenchmarks.resultsSubmitted} Results Submitted ({Math.round(dynamicBenchmarks.resultSubmissionRate)}%) &bull; {operationalIndicators.reappearPapers} Reappear Courses
               </p>
             </div>
 
@@ -1394,10 +1618,10 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
                 onChange={e => setSelectedExamType(e.target.value as any)}
                 className="text-xs font-semibold py-1.5 px-3 rounded-xl border border-slate-300 bg-white text-slate-800"
               >
-                <option value="All">All Exam Types</option>
-                <option value="Final">Final (58)</option>
-                <option value="Mid">Mid (4)</option>
-                <option value="Reappear">Reappear (2)</option>
+                <option value="All">All Exam Types ({coursesList.length})</option>
+                <option value="Final">Final ({coursesList.filter(c => c.examType === 'Final').length})</option>
+                <option value="Mid">Mid ({coursesList.filter(c => c.examType === 'Mid').length})</option>
+                <option value="Reappear">Reappear ({operationalIndicators.reappearPapers})</option>
               </select>
 
               <select
@@ -1406,9 +1630,9 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
                 className="text-xs font-semibold py-1.5 px-3 rounded-xl border border-slate-300 bg-white text-slate-800"
               >
                 <option value="all">All Statuses</option>
-                <option value="delayed_results">Delayed Results (&gt;15d)</option>
-                <option value="stalled_papers">Stalled Papers (5)</option>
-                <option value="reappear">Reappear Courses (2)</option>
+                <option value="delayed_results">Delayed Results (&gt;15d) ({operationalIndicators.resultDelayed15d})</option>
+                <option value="stalled_papers">Stalled Papers ({stalledCourses.length})</option>
+                <option value="reappear">Reappear Courses ({operationalIndicators.reappearPapers})</option>
               </select>
             </div>
           </div>
@@ -1568,7 +1792,7 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {INSTITUTIONAL_BENCHMARKS.departmentPerformance.map(d => (
+                    {departmentPerformance.map(d => (
                       <tr key={d.department} className="border-b border-slate-200">
                         <td className="p-2 font-bold border-r border-slate-200">{d.department}</td>
                         <td className="p-2 border-r border-slate-200">{d.papersSubmitted} of {d.totalPapers}</td>
@@ -1663,13 +1887,13 @@ export const ExecutiveVisualAnalysis: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      setCoursesList(COLLEGE_64_COURSES);
+                      setCustomImportedList(null);
                       setShowImportModal(false);
-                      setImportNotice('Reset to official 64 College courses & teachers successfully.');
+                      setImportNotice('Reset to live department courses and date sheet data successfully.');
                     }}
                     className="text-[11px] font-bold text-slate-600 hover:text-slate-900 underline"
                   >
-                    Reset to Default 64
+                    Reset to Live Data
                   </button>
                 </div>
               </div>

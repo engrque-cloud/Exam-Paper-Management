@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   FileCheck2,
 } from 'lucide-react';
+import { QAPaperDistributionChart } from './QAPaperDistributionChart';
 
 export const QADashboard: React.FC = () => {
   const { papers, qaReviewPaper, setPreviewPaper } = useExam();
@@ -206,6 +207,12 @@ export const QADashboard: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Real-time QA Distribution & Bottleneck Identification Section */}
+      <QAPaperDistributionChart
+        onSelectTab={tab => setActiveTab(tab)}
+        onSelectSubject={subj => setSubjectFilter(subj)}
+      />
 
       {/* Main Papers Queue List */}
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">

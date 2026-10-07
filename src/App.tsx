@@ -19,7 +19,6 @@ const MainContent: React.FC = () => {
     return (
       <>
         <LoginScreen />
-        <GlobalDeadlineModal />
         <AuthModal />
         <Toast />
       </>

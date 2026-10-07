@@ -34,7 +34,6 @@ export const LoginScreen: React.FC = () => {
     requestPasswordReset,
     resetPassword,
     deadlineStatus,
-    setIsDeadlineModalOpen,
   } = useExam();
 
   // Active view tab
@@ -208,18 +207,12 @@ export const LoginScreen: React.FC = () => {
             </div>
           </div>
 
-          {/* Submission Deadline Capsule */}
+          {/* Submission Deadline Capsule - Read Only on Login Page */}
           <div className="flex items-center gap-3">
             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50/80 border border-emerald-200 text-xs">
               <Clock className="w-3.5 h-3.5 text-emerald-600" />
               <span className="text-slate-600">Paper Deadline:</span>
               <span className="font-semibold text-slate-900">{deadlineStatus.formattedDate}</span>
-              <button
-                onClick={() => setIsDeadlineModalOpen(true)}
-                className="text-emerald-700 hover:text-emerald-800 underline font-medium ml-1"
-              >
-                Schedule
-              </button>
             </div>
 
             {/* Student Result Notice Board Portal Link */}
@@ -817,10 +810,10 @@ export const LoginScreen: React.FC = () => {
               </div>
             )}
 
-            {/* TAB 4: STUDENT DIGITAL RESULT NOTICE BOARD & ROLL SLIPS */}
+            {/* TAB 4: STUDENT DIGITAL RESULT NOTICE BOARD & ROLL SLIPS (Schedule removed on login portal) */}
             {activeTab === 'student_noticeboard' && (
               <div className="p-4 sm:p-6">
-                <StudentNoticeBoardPortal />
+                <StudentNoticeBoardPortal hideSchedule={true} />
               </div>
             )}
 

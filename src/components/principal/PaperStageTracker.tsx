@@ -82,32 +82,48 @@ export const PaperStageTracker: React.FC = () => {
   // QA Inspection modal
   const [inspectQAPaper, setInspectQAPaper] = useState<ExamPaper | null>(null);
 
-  // Compute full pipeline mapping for every course
+  // Compute full pipeline mapping ONLY for courses confirmed from the Date Sheet
   const pipelineItems: CoursePipelineItem[] = useMemo(() => {
-    return courses.map(course => {
-      const paper = papers.find(p => p.courseCode === course.code);
-      const dateSheetRow = dateSheetRows.find(d => d.courseCode === course.code);
+    // Only data that is confirmed in the date sheet should come here
+    return dateSheetRows.map(dateSheetRow => {
+      const course = courses.find(c => c.code === dateSheetRow.courseCode) || {
+        id: dateSheetRow.courseCode,
+        code: dateSheetRow.courseCode,
+        title: dateSheetRow.courseTitle,
+        subject: dateSheetRow.subject,
+        semester: dateSheetRow.semester,
+        creditHours: 3,
+      };
 
-      // Find assigned teacher
+      const paper = papers.find(
+        p => p.id === dateSheetRow.paperId || p.courseCode === dateSheetRow.courseCode
+      );
+
+      // Find assigned teacher from date sheet or faculty list
       const assignedTeacher = teachers.find(
-        t => t.department === course.subject && t.assignedSemesters.includes(course.semester)
-      ) || teachers.find(t => t.department === course.subject) || teachers[0];
+        t => t.id === dateSheetRow.paperSetterTeacherId || t.name === dateSheetRow.paperSetterTeacherName
+      ) || teachers.find(
+        t => t.department === dateSheetRow.subject && t.assignedSemesters.includes(dateSheetRow.semester)
+      ) || teachers.find(t => t.department === dateSheetRow.subject);
+
+      const teacherName = dateSheetRow.paperSetterTeacherName || assignedTeacher?.name || 'Assigned Faculty';
+      const teacherId = dateSheetRow.paperSetterTeacherId || assignedTeacher?.id;
 
       if (!paper) {
         // Stage 1: Stuck at teacher upload
         return {
           course,
           paper: undefined,
-          dateSheetRow: undefined,
+          dateSheetRow,
           stage: 'stuck_at_teacher_upload',
           stageLabel: 'Faculty Paper Draft Pending',
           stageStep: 1,
-          stuckParty: assignedTeacher?.name || 'Assigned Faculty',
+          stuckParty: teacherName,
           stuckPartyRole: 'teacher',
-          stuckPartyId: assignedTeacher?.id,
+          stuckPartyId: teacherId,
           stuckDurationDays: 4,
           severity: 'urgent',
-          actionNeeded: 'Faculty must draft & submit question paper',
+          actionNeeded: `Faculty (${teacherName}) must draft & submit question paper for ${dateSheetRow.examDate} exam`,
         };
       }
 
@@ -120,11 +136,11 @@ export const PaperStageTracker: React.FC = () => {
           stage: 'stuck_at_qa_review',
           stageLabel: 'Awaiting QA Paper Review',
           stageStep: 2,
-          stuckParty: 'Dr. Marcus Sterling (QA Paper Checker)',
+          stuckParty: 'QA Committee Cell',
           stuckPartyRole: 'qa',
           stuckDurationDays: 2,
           severity: 'warning',
-          actionNeeded: 'QA Cell must validate against syllabus rubric',
+          actionNeeded: 'QA Cell must validate against syllabus rubric before exam conduction',
         };
       }
 
@@ -137,9 +153,9 @@ export const PaperStageTracker: React.FC = () => {
           stage: 'stuck_at_teacher_revision',
           stageLabel: 'QA Rejected (Correction Required)',
           stageStep: 2,
-          stuckParty: paper.teacherName,
+          stuckParty: paper.teacherName || teacherName,
           stuckPartyRole: 'teacher',
-          stuckPartyId: paper.teacherId,
+          stuckPartyId: paper.teacherId || teacherId,
           stuckDurationDays: 3,
           severity: 'urgent',
           actionNeeded: 'Faculty must revise paper per QA remarks & re-upload v2',
@@ -147,37 +163,19 @@ export const PaperStageTracker: React.FC = () => {
       }
 
       if (paper.status === 'qa_approved') {
-        if (dateSheetRow) {
-          // Stage 5: Fully scheduled
-          return {
-            course,
-            paper,
-            dateSheetRow,
-            stage: 'fully_scheduled',
-            stageLabel: 'QA Certified & Scheduled in Date Sheet',
-            stageStep: 5,
-            stuckParty: 'None (Ready for Exam Conduction)',
-            stuckPartyRole: 'principal',
-            stuckDurationDays: 0,
-            severity: 'completed',
-            actionNeeded: 'Sealed printing clearance authorized',
-          };
-        } else {
-          // Stage 4: QA approved awaiting datesheet row
-          return {
-            course,
-            paper,
-            dateSheetRow: undefined,
-            stage: 'qa_approved',
-            stageLabel: 'QA Certified (Awaiting Date Sheet Slot)',
-            stageStep: 4,
-            stuckParty: 'Office of the Principal (Exam Cell)',
-            stuckPartyRole: 'principal',
-            stuckDurationDays: 1,
-            severity: 'normal',
-            actionNeeded: 'Assign exam date, shift, and hall location',
-          };
-        }
+        return {
+          course,
+          paper,
+          dateSheetRow,
+          stage: 'fully_scheduled',
+          stageLabel: 'QA Certified & Confirmed on Date Sheet',
+          stageStep: 5,
+          stuckParty: 'None (Ready for Exam Conduction)',
+          stuckPartyRole: 'principal',
+          stuckDurationDays: 0,
+          severity: 'completed',
+          actionNeeded: `Clearance authorized for ${dateSheetRow.examDate} (${dateSheetRow.shift}) in ${dateSheetRow.hallLocation}`,
+        };
       }
 
       return {
@@ -187,14 +185,15 @@ export const PaperStageTracker: React.FC = () => {
         stage: 'stuck_at_teacher_upload',
         stageLabel: 'Pending Submission',
         stageStep: 1,
-        stuckParty: assignedTeacher?.name || 'Faculty',
+        stuckParty: teacherName,
         stuckPartyRole: 'teacher',
+        stuckPartyId: teacherId,
         stuckDurationDays: 1,
         severity: 'warning',
         actionNeeded: 'Action required',
       };
     });
-  }, [courses, papers, dateSheetRows, teachers]);
+  }, [dateSheetRows, courses, papers, teachers]);
 
   // Stage counts for metrics
   const totalCourses = pipelineItems.length;
@@ -263,7 +262,7 @@ export const PaperStageTracker: React.FC = () => {
               Paper Submission Lifecycle & Stage Bottleneck Tracker
             </h2>
             <p className="text-xs text-slate-500 mt-1 max-w-2xl">
-              Real-time audit of all <strong>{totalCourses} accredited courses</strong> across English, Islamic Studies, Sociology, and Zoology. Identifies exactly where question papers are stalled and enables immediate administrative intervention.
+              Live lifecycle audit of <strong>{totalCourses} confirmed Date Sheet examination papers</strong>. Sourced exclusively from courses confirmed on the examination Date Sheet, tracking paper submission deadlines and bottlenecks through QA certification.
             </p>
           </div>
 
@@ -474,7 +473,7 @@ export const PaperStageTracker: React.FC = () => {
         </div>
 
         <div className="text-xs text-slate-500 font-medium">
-          Showing <strong>{filteredItems.length}</strong> of {totalCourses} courses
+          Showing <strong>{filteredItems.length}</strong> of {totalCourses} confirmed date sheet exams
         </div>
       </div>
 
@@ -497,8 +496,16 @@ export const PaperStageTracker: React.FC = () => {
                 <tr>
                   <td colSpan={6} className="text-center py-12 text-slate-400">
                     <CheckCircle2 className="w-8 h-8 mx-auto text-slate-300 mb-2" />
-                    <p className="font-semibold text-slate-700">No courses match the selected filters</p>
-                    <p className="text-xs text-slate-400 mt-1">Try resetting the stage or department filters above.</p>
+                    <p className="font-semibold text-slate-700">
+                      {dateSheetRows.length === 0
+                        ? 'No Confirmed Exams in Date Sheet'
+                        : 'No courses match the selected filters'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                      {dateSheetRows.length === 0
+                        ? 'Only exams scheduled and confirmed in the Date Sheet appear in this lifecycle tracker. Please schedule exams in the Date Sheet to track paper submissions.'
+                        : 'Try resetting the stage or department filters above.'}
+                    </p>
                   </td>
                 </tr>
               ) : (

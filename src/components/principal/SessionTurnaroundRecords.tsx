@@ -31,12 +31,6 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { SubjectType, SemesterNumber, SessionExamRecord } from '../../types';
-import {
-  ALL_SESSION_RECORDS,
-  AVAILABLE_SESSIONS,
-  SESSION_SUMMARIES,
-  DEPARTMENT_TURNAROUND_BENCHMARKS,
-} from '../../data/sessionRecordsData';
 import { COLLEGE_METADATA } from '../../data/collegeData';
 import { useExam } from '../../context/ExamContext';
 import { FinishExamModal } from './FinishExamModal';
@@ -46,6 +40,11 @@ export const SessionTurnaroundRecords: React.FC = () => {
     isSessionConcluded,
     concludedSessionDetails,
     reopenSession,
+    dateSheetRows,
+    papers,
+    results,
+    teachers,
+    subjects,
   } = useExam();
 
   // Session selection state
@@ -66,12 +65,247 @@ export const SessionTurnaroundRecords: React.FC = () => {
   const [selectedCourseDetail, setSelectedCourseDetail] = useState<SessionExamRecord | null>(null);
   const [copiedNotice, setCopiedNotice] = useState(false);
 
-  // Active session summary
-  const currentSummary = SESSION_SUMMARIES[selectedSession] || SESSION_SUMMARIES['Fall 2026'];
+  // Helper to calculate days between two ISO date strings
+  const calculateDaysBetween = (startStr?: string, endStr?: string): number => {
+    if (!startStr || !endStr) return 0;
+    const start = new Date(startStr);
+    const end = new Date(endStr);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
+    const diffTime = end.getTime() - start.getTime();
+    return Math.max(0, Math.round(diffTime / (1000 * 60 * 60 * 24)));
+  };
+
+  // Dynamically constructed audit records from Teachers Date Sheet and Paper submissions
+  const allAuditRecords: SessionExamRecord[] = useMemo(() => {
+    const list: SessionExamRecord[] = [];
+
+    // Map each dateSheetRow from Teachers Date Sheet
+    dateSheetRows.forEach(row => {
+      const matchingPaper = papers.find(
+        p => p.id === row.paperId || p.courseCode.trim().toUpperCase() === row.courseCode.trim().toUpperCase()
+      );
+      const matchingResult = results.find(
+        r => r.courseCode.trim().toUpperCase() === row.courseCode.trim().toUpperCase()
+      );
+      const matchingTeacher = teachers.find(
+        t => t.name.toLowerCase() === (row.paperSetterTeacherName || '').toLowerCase() ||
+             t.id === matchingPaper?.teacherId
+      );
+
+      const paperSubmittedDate = matchingPaper?.submittedAt || (row.paperUploaded ? row.paperUploadedAt : undefined);
+      const examDate = row.examDate;
+      const resultSubmittedDate = matchingResult?.submittedAt;
+      const gazetteDate = matchingResult?.gazettePublishedAt || (matchingResult?.status === 'gazette_published' ? matchingResult.submittedAt : undefined);
+      const qaApprovedDate = matchingPaper?.qaReview?.reviewedAt;
+
+      // Calculate lead times
+      const daysPaperSubmitToExam = paperSubmittedDate && examDate ? calculateDaysBetween(paperSubmittedDate, examDate) : 0;
+      const daysExamToResult = examDate && resultSubmittedDate ? calculateDaysBetween(examDate, resultSubmittedDate) : 0;
+      const totalLifecycleDays = daysPaperSubmitToExam + daysExamToResult;
+
+      let rating: 'Optimal' | 'Standard' | 'Delayed Bottleneck' = 'Standard';
+      if (daysPaperSubmitToExam > 0) {
+        if (daysPaperSubmitToExam <= 18) rating = 'Optimal';
+        else if (daysPaperSubmitToExam <= 24) rating = 'Standard';
+        else rating = 'Delayed Bottleneck';
+      }
+
+      list.push({
+        id: `audit-${row.id}`,
+        sessionName: row.academicSession || matchingPaper?.academicSession || 'Fall 2026',
+        academicYear: '2026-2027',
+        courseCode: row.courseCode,
+        courseTitle: row.courseTitle,
+        department: row.subject,
+        semester: row.semester,
+        creditHours: 3,
+        examType: 'Final',
+        assignedTeacher: row.paperSetterTeacherName || matchingPaper?.teacherName || matchingTeacher?.name || 'Assigned Faculty',
+        paperCallDate: row.paperCallDate || paperSubmittedDate || '',
+        paperSubmittedDate: paperSubmittedDate || '',
+        qaApprovedDate: qaApprovedDate || '',
+        dateSheetAnnouncedDate: row.examDate || '',
+        examConductedDate: examDate || '',
+        resultSubmittedDate: resultSubmittedDate || '',
+        gazettePublishedDate: gazetteDate || '',
+        daysPaperCallToSubmit: 7,
+        daysSubmitToQaApproval: qaApprovedDate && paperSubmittedDate ? calculateDaysBetween(paperSubmittedDate, qaApprovedDate) : 2,
+        daysApprovalToDateSheet: 3,
+        daysPaperSubmitToExam,
+        daysExamToResultPublish: daysExamToResult,
+        totalLifecycleDays,
+        paperStatus: paperSubmittedDate ? 'Submitted' : 'Delayed',
+        examStatus: examDate ? 'Scheduled' : 'Scheduled',
+        resultStatus: resultSubmittedDate ? 'Gazetted' : 'Pending',
+        turnaroundRating: rating,
+        passedCount: 0,
+        passPercentage: 0,
+        totalStudents: row.totalCandidates || (matchingResult?.students?.length ?? 0),
+      });
+    });
+
+    // Also include any papers submitted by teachers that are not yet scheduled on the date sheet
+    papers.forEach(p => {
+      const alreadyIncluded = list.some(r => r.courseCode.trim().toUpperCase() === p.courseCode.trim().toUpperCase());
+      if (!alreadyIncluded) {
+        const matchingResult = results.find(
+          r => r.courseCode.trim().toUpperCase() === p.courseCode.trim().toUpperCase()
+        );
+        const matchingTeacher = teachers.find(t => t.id === p.teacherId || t.name.toLowerCase() === p.teacherName.toLowerCase());
+        const qaApprovedDate = p.qaReview?.reviewedAt;
+        const resultSubmittedDate = matchingResult?.submittedAt;
+        const gazetteDate = matchingResult?.gazettePublishedAt || (matchingResult?.status === 'gazette_published' ? matchingResult.submittedAt : undefined);
+
+        list.push({
+          id: `audit-paper-${p.id}`,
+          sessionName: p.academicSession || 'Fall 2026',
+          academicYear: '2026-2027',
+          courseCode: p.courseCode,
+          courseTitle: p.courseTitle,
+          department: p.subject,
+          semester: p.semester,
+          creditHours: 3,
+          examType: p.examType || 'Final',
+          assignedTeacher: p.teacherName || matchingTeacher?.name || 'Assigned Faculty',
+          paperCallDate: '',
+          paperSubmittedDate: p.submittedAt || '',
+          qaApprovedDate: qaApprovedDate || '',
+          dateSheetAnnouncedDate: '',
+          examConductedDate: '',
+          resultSubmittedDate: resultSubmittedDate || '',
+          gazettePublishedDate: gazetteDate || '',
+          daysPaperCallToSubmit: 0,
+          daysSubmitToQaApproval: qaApprovedDate ? calculateDaysBetween(p.submittedAt, qaApprovedDate) : 0,
+          daysApprovalToDateSheet: 0,
+          daysPaperSubmitToExam: 0,
+          daysExamToResultPublish: 0,
+          totalLifecycleDays: 0,
+          paperStatus: 'Submitted',
+          examStatus: 'Scheduled',
+          resultStatus: 'Pending',
+          turnaroundRating: 'Optimal',
+          passedCount: 0,
+          passPercentage: 0,
+          totalStudents: matchingResult?.students?.length ?? 0,
+        });
+      }
+    });
+
+    return list;
+  }, [dateSheetRows, papers, results, teachers]);
+
+  // Available academic sessions from records
+  const availableSessions = useMemo(() => {
+    const sessionSet = new Set<string>();
+    allAuditRecords.forEach(r => {
+      if (r.sessionName) sessionSet.add(r.sessionName);
+    });
+    if (sessionSet.size === 0) {
+      sessionSet.add('Fall 2026');
+    }
+    return Array.from(sessionSet).map(s => ({
+      id: s,
+      label: `${s} (Academic Session)`,
+      status: s === 'Fall 2026' ? 'Active Current' : 'Completed & Archived',
+      year: '2026-2027',
+    }));
+  }, [allAuditRecords]);
+
+  // Active session summary dynamically derived
+  const currentSummary = useMemo(() => {
+    const sessionRecords = allAuditRecords.filter(r => selectedSession === 'All' || r.sessionName === selectedSession);
+    const totalCourses = sessionRecords.length;
+    const papersSubmitted = sessionRecords.filter(r => !!r.paperSubmittedDate).length;
+    const examsConducted = sessionRecords.filter(r => !!r.examConductedDate).length;
+    const resultsGazetted = sessionRecords.filter(r => !!r.gazettePublishedDate || !!r.resultSubmittedDate).length;
+    const complianceRate = totalCourses > 0 ? Math.round((papersSubmitted / totalCourses) * 100) : 0;
+
+    const validLeadTimes = sessionRecords.map(r => r.daysPaperSubmitToExam).filter(d => d > 0);
+    const avgDaysPaperSubmitToExam = validLeadTimes.length > 0 ? Number((validLeadTimes.reduce((a, b) => a + b, 0) / validLeadTimes.length).toFixed(1)) : 0;
+    const minDaysPaperToExam = validLeadTimes.length > 0 ? Math.min(...validLeadTimes) : 0;
+    const maxDaysPaperToExam = validLeadTimes.length > 0 ? Math.max(...validLeadTimes) : 0;
+
+    const validResultTimes = sessionRecords.map(r => r.daysExamToResultPublish).filter(d => d > 0);
+    const avgDaysExamToResult = validResultTimes.length > 0 ? Number((validResultTimes.reduce((a, b) => a + b, 0) / validResultTimes.length).toFixed(1)) : 0;
+
+    const validTotalCycle = sessionRecords.map(r => r.totalLifecycleDays).filter(d => d > 0);
+    const avgTotalLifecycleDays = validTotalCycle.length > 0 ? Number((validTotalCycle.reduce((a, b) => a + b, 0) / validTotalCycle.length).toFixed(1)) : 0;
+
+    const deptList = (subjects && subjects.length > 0 ? subjects : ['English', 'Islamic Studies', 'Sociology', 'Zoology']) as SubjectType[];
+    const deptAverages = deptList.map(dept => {
+      const deptRecs = sessionRecords.filter(r => r.department === dept);
+      const leads = deptRecs.map(r => r.daysPaperSubmitToExam).filter(d => d > 0);
+      const avg = leads.length > 0 ? leads.reduce((a, b) => a + b, 0) / leads.length : 0;
+      return { dept, avg, count: deptRecs.length };
+    }).filter(d => d.count > 0);
+
+    deptAverages.sort((a, b) => a.avg - b.avg);
+    const fastestDepartment = deptAverages.length > 0 ? deptAverages[0].dept : 'None';
+    const bottleneckDepartment = deptAverages.length > 0 ? deptAverages[deptAverages.length - 1].dept : 'None';
+
+    return {
+      sessionName: selectedSession,
+      academicYear: '2026-2027',
+      status: selectedSession === 'Fall 2026' ? 'Active Current' : 'Completed & Archived',
+      totalCourses,
+      papersSubmitted,
+      examsConducted,
+      resultsGazetted,
+      complianceRate,
+      avgDaysPaperSubmitToExam,
+      minDaysPaperToExam,
+      maxDaysPaperToExam,
+      avgDaysExamToResult,
+      avgTotalLifecycleDays,
+      fastestDepartment,
+      bottleneckDepartment,
+      onTimeExamDeliveryRate: complianceRate,
+    };
+  }, [allAuditRecords, selectedSession, subjects]);
+
+  // Department turnaround benchmarks derived dynamically
+  const departmentBenchmarks = useMemo(() => {
+    const depts = (subjects && subjects.length > 0 ? subjects : ['English', 'Islamic Studies', 'Sociology', 'Zoology']) as SubjectType[];
+    return depts.map(dept => {
+      const deptRecs = allAuditRecords.filter(r => r.department === dept);
+      const coursesCount = deptRecs.length;
+      const leads = deptRecs.map(r => r.daysPaperSubmitToExam).filter(d => d > 0);
+      const avgPaperToExamDays = leads.length > 0 ? Number((leads.reduce((a, b) => a + b, 0) / leads.length).toFixed(1)) : 0;
+
+      const draftDays = deptRecs.map(r => r.daysPaperCallToSubmit).filter(d => d > 0);
+      const avgDraftingDays = draftDays.length > 0 ? Number((draftDays.reduce((a, b) => a + b, 0) / draftDays.length).toFixed(1)) : 0;
+
+      const qaDays = deptRecs.map(r => r.daysSubmitToQaApproval).filter(d => d > 0);
+      const avgQaDays = qaDays.length > 0 ? Number((qaDays.reduce((a, b) => a + b, 0) / qaDays.length).toFixed(1)) : 0;
+
+      const resDays = deptRecs.map(r => r.daysExamToResultPublish).filter(d => d > 0);
+      const avgResultDays = resDays.length > 0 ? Number((resDays.reduce((a, b) => a + b, 0) / resDays.length).toFixed(1)) : 0;
+
+      const totalCycleDays = Number((avgDraftingDays + avgQaDays + avgPaperToExamDays + avgResultDays).toFixed(1));
+
+      let rating: 'Fast Track' | 'Standard' | 'Attention Needed' = 'Standard';
+      if (avgPaperToExamDays > 0) {
+        if (avgPaperToExamDays <= 18) rating = 'Fast Track';
+        else if (avgPaperToExamDays <= 24) rating = 'Standard';
+        else rating = 'Attention Needed';
+      }
+
+      return {
+        department: dept,
+        coursesCount,
+        avgDraftingDays,
+        avgQaDays,
+        avgPaperToExamDays,
+        avgResultDays,
+        totalCycleDays,
+        rating,
+      };
+    });
+  }, [allAuditRecords, subjects]);
 
   // Filtered records for the current session or all sessions
   const records = useMemo(() => {
-    return ALL_SESSION_RECORDS.filter(record => {
+    return allAuditRecords.filter(record => {
       if (selectedSession !== 'All' && record.sessionName !== selectedSession) return false;
       if (selectedDept !== 'All' && record.department !== selectedDept) return false;
       if (selectedSemester !== 'All' && record.semester !== selectedSemester) return false;
@@ -86,7 +320,7 @@ export const SessionTurnaroundRecords: React.FC = () => {
       }
       return true;
     });
-  }, [selectedSession, selectedDept, selectedSemester, selectedRating, searchQuery]);
+  }, [allAuditRecords, selectedSession, selectedDept, selectedSemester, selectedRating, searchQuery]);
 
   // Dynamically computed stats for filtered records
   const dynamicStats = useMemo(() => {
@@ -204,7 +438,7 @@ export const SessionTurnaroundRecords: React.FC = () => {
       `- Delayed / Bottleneck Courses: ${dynamicStats.bottleneckCount} (${((dynamicStats.bottleneckCount / (records.length || 1)) * 100).toFixed(0)}%)`,
       ``,
       `DEPARTMENTAL BENCHMARKS:`,
-      ...DEPARTMENT_TURNAROUND_BENCHMARKS.filter(d => d.coursesCount > 0).map(d => 
+      ...departmentBenchmarks.filter(d => d.coursesCount > 0).map(d => 
         `* ${d.department}: Avg ${d.avgPaperToExamDays} days (Paper-to-Exam) | ${d.avgResultDays} days (Result) | Rating: ${d.rating}`
       ),
       `========================================================================`,
@@ -378,7 +612,7 @@ export const SessionTurnaroundRecords: React.FC = () => {
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
-              All Sessions ({ALL_SESSION_RECORDS.length} Records)
+              All Sessions ({allAuditRecords.length} Records)
             </button>
           </div>
         </div>
@@ -701,8 +935,18 @@ export const SessionTurnaroundRecords: React.FC = () => {
               <tbody className="divide-y divide-slate-200/80 bg-white">
                 {records.length === 0 ? (
                   <tr>
-                    <td colSpan={13} className="py-8 text-center text-slate-400">
-                      No session records found matching filter criteria.
+                    <td colSpan={13} className="py-12 text-center">
+                      <div className="max-w-md mx-auto space-y-2">
+                        <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto border border-indigo-100 shadow-2xs">
+                          <FileSpreadsheet className="w-6 h-6" />
+                        </div>
+                        <p className="text-sm font-bold text-slate-800">
+                          Paper-to-Exam Audit Ledger Cleared (Nil Records)
+                        </p>
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                          All data from the audit ledger has been cleared. As teachers upload question papers, QA approves them, date sheets are scheduled, and final results are published, lifecycle audit entries will be recorded in real-time.
+                        </p>
+                      </div>
                     </td>
                   </tr>
                 ) : (
@@ -823,7 +1067,7 @@ export const SessionTurnaroundRecords: React.FC = () => {
       {activeSubView === 'department_benchmarks' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {DEPARTMENT_TURNAROUND_BENCHMARKS.filter(d => d.coursesCount > 0).map(dept => (
+            {departmentBenchmarks.map(dept => (
               <div key={dept.department} className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-black uppercase text-indigo-700">{dept.department}</span>
@@ -846,6 +1090,9 @@ export const SessionTurnaroundRecords: React.FC = () => {
                     <span className="text-3xl font-black text-indigo-950">{dept.avgPaperToExamDays}</span>
                     <span className="text-xs font-bold text-indigo-700">Days</span>
                   </div>
+                  <span className="text-[10px] text-slate-500 font-medium block mt-0.5">
+                    {dept.coursesCount} course{dept.coursesCount === 1 ? '' : 's'} on date sheet
+                  </span>
                 </div>
 
                 <div className="space-y-2 text-xs text-slate-600">
@@ -945,48 +1192,59 @@ export const SessionTurnaroundRecords: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/80 bg-white">
-                {AVAILABLE_SESSIONS.map(sess => {
-                  const s = SESSION_SUMMARIES[sess.id];
-                  if (!s) return null;
+                {availableSessions.map(sess => {
+                  const sessionRecords = allAuditRecords.filter(r => r.sessionName === sess.id);
+                  const totalCourses = sessionRecords.length;
+                  const papersSubmitted = sessionRecords.filter(r => !!r.paperSubmittedDate).length;
+                  const complianceRate = totalCourses > 0 ? Math.round((papersSubmitted / totalCourses) * 100) : 0;
+                  const validLeadTimes = sessionRecords.map(r => r.daysPaperSubmitToExam).filter(d => d > 0);
+                  const avgDaysPaperSubmitToExam = validLeadTimes.length > 0 ? Number((validLeadTimes.reduce((a, b) => a + b, 0) / validLeadTimes.length).toFixed(1)) : 0;
+                  const minDaysPaperToExam = validLeadTimes.length > 0 ? Math.min(...validLeadTimes) : 0;
+                  const maxDaysPaperToExam = validLeadTimes.length > 0 ? Math.max(...validLeadTimes) : 0;
+                  const validResultTimes = sessionRecords.map(r => r.daysExamToResultPublish).filter(d => d > 0);
+                  const avgDaysExamToResult = validResultTimes.length > 0 ? Number((validResultTimes.reduce((a, b) => a + b, 0) / validResultTimes.length).toFixed(1)) : 0;
+                  const validTotalCycle = sessionRecords.map(r => r.totalLifecycleDays).filter(d => d > 0);
+                  const avgTotalLifecycleDays = validTotalCycle.length > 0 ? Number((validTotalCycle.reduce((a, b) => a + b, 0) / validTotalCycle.length).toFixed(1)) : 0;
+
                   return (
                     <tr key={sess.id} className="hover:bg-slate-50 transition">
                       <td className="py-3.5 px-4 font-bold text-slate-900 whitespace-nowrap">
-                        {s.sessionName} ({s.academicYear})
+                        {sess.id} ({sess.year})
                       </td>
                       <td className="py-3.5 px-3 whitespace-nowrap">
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          s.status === 'Active Current'
+                          sess.status === 'Active Current'
                             ? 'bg-emerald-100 text-emerald-800'
                             : 'bg-slate-100 text-slate-700'
                         }`}>
-                          {s.status}
+                          {sess.status}
                         </span>
                       </td>
                       <td className="py-3.5 px-3 text-center font-bold text-slate-900">
-                        {s.totalCourses}
+                        {totalCourses}
                       </td>
                       <td className="py-3.5 px-3 text-center font-bold text-emerald-700">
-                        {s.complianceRate}%
+                        {complianceRate}%
                       </td>
                       <td className="py-3.5 px-4 text-center bg-indigo-50/50 border-x border-indigo-100 whitespace-nowrap">
                         <span className="px-3 py-1 bg-indigo-600 text-white rounded-xl text-xs font-black shadow-sm">
-                          {s.avgDaysPaperSubmitToExam} Days
+                          {avgDaysPaperSubmitToExam} Days
                         </span>
                       </td>
                       <td className="py-3.5 px-3 text-center whitespace-nowrap text-slate-600 font-mono">
-                        {s.minDaysPaperToExam}d – {s.maxDaysPaperToExam}d
+                        {minDaysPaperToExam}d – {maxDaysPaperToExam}d
                       </td>
                       <td className="py-3.5 px-3 text-center font-semibold text-slate-700">
-                        {s.avgDaysExamToResult} Days
+                        {avgDaysExamToResult} Days
                       </td>
                       <td className="py-3.5 px-3 text-center font-bold text-slate-900">
-                        {s.avgTotalLifecycleDays} Days
+                        {avgTotalLifecycleDays} Days
                       </td>
                       <td className="py-3.5 px-4 text-center font-bold text-emerald-700 whitespace-nowrap">
-                        {s.fastestDepartment}
+                        {totalCourses > 0 ? currentSummary.fastestDepartment : 'None'}
                       </td>
                       <td className="py-3.5 px-4 text-center font-bold text-rose-700 whitespace-nowrap">
-                        {s.bottleneckDepartment}
+                        {totalCourses > 0 ? currentSummary.bottleneckDepartment : 'None'}
                       </td>
                     </tr>
                   );
@@ -1249,7 +1507,7 @@ export const SessionTurnaroundRecords: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
-                    {DEPARTMENT_TURNAROUND_BENCHMARKS.filter(d => d.coursesCount > 0).map(dept => (
+                    {departmentBenchmarks.filter(d => d.coursesCount > 0).map(dept => (
                       <tr key={dept.department}>
                         <td className="py-2 px-2 font-bold border-r border-slate-300">{dept.department}</td>
                         <td className="py-2 px-2 text-center border-r border-slate-300">{dept.coursesCount}</td>

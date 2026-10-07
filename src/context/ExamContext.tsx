@@ -17,6 +17,7 @@ import {
   ExamResult,
   StudentResultEntry,
   Student,
+  AttendanceRecord,
 } from '../types';
 import {
   TEACHER_PROFILES,
@@ -30,6 +31,7 @@ import {
 import { INITIAL_USER_ACCOUNTS, INITIAL_GLOBAL_DEADLINE } from '../data/initialAuth';
 import { INITIAL_EXAM_RESULTS, calculateGradeAndGpa } from '../data/initialResults';
 import { INITIAL_STUDENTS } from '../data/initialStudents';
+import { INITIAL_ATTENDANCE_RECORDS, calculateAttendanceEligibility } from '../data/initialAttendance';
 import { Course } from '../types';
 import {
   computePaperUploadDeadline,
@@ -260,6 +262,35 @@ interface ExamContextType {
   graduatePassoutStudent: (rollNumber: string, reason?: string) => { success: boolean; error?: string };
   restoreStudentFromArchive: (rollNumber: string) => { success: boolean; error?: string };
   deleteStudent: (rollNumber: string) => { success: boolean };
+
+  // Attendance & Exam Eligibility Tracking
+  attendanceRecords: AttendanceRecord[];
+  attendanceThreshold: number;
+  setAttendanceThreshold: (threshold: number) => void;
+  addAttendanceRecord: (record: Omit<AttendanceRecord, 'id' | 'lastUpdated' | 'attendancePercentage' | 'isEligible'>) => { success: boolean; error?: string };
+  bulkUploadAttendance: (
+    records: Array<{
+      rollNumber: string;
+      studentName?: string;
+      department?: SubjectType;
+      semester?: SemesterNumber;
+      courseCode?: string;
+      courseTitle?: string;
+      totalClasses: number;
+      attendedClasses: number;
+      isExempted?: boolean;
+      exemptionReason?: string;
+    }>
+  ) => {
+    success: boolean;
+    importedCount: number;
+    updatedCount: number;
+    errors: string[];
+  };
+  updateAttendanceRecord: (id: string, updates: Partial<AttendanceRecord>) => { success: boolean; error?: string };
+  toggleAttendanceExemption: (id: string, reason?: string) => void;
+  deleteAttendanceRecord: (id: string) => { success: boolean };
+  clearAllAttendance: () => void;
 }
 
 const STORAGE_KEYS = {
@@ -284,7 +315,22 @@ const STORAGE_KEYS = {
   COLLEGE_LOGO: 'exam_app_college_logo_v1',
   COLLEGE_LOGO_RIGHT: 'exam_app_college_logo_right_v1',
   COLLEGE_NAME: 'exam_app_college_name_v1',
+  ATTENDANCE: 'exam_app_attendance_v1',
+  ATTENDANCE_THRESHOLD: 'exam_app_attendance_threshold_v1',
 };
+
+const SCHEMA_VERSION_KEY = 'exam_app_version_v7_audit_ledger_nil';
+if (typeof window !== 'undefined') {
+  try {
+    if (localStorage.getItem(SCHEMA_VERSION_KEY) !== 'ready') {
+      localStorage.clear();
+      sessionStorage.clear();
+      localStorage.setItem(SCHEMA_VERSION_KEY, 'ready');
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
 
 const ExamContext = createContext<ExamContextType | undefined>(undefined);
 
@@ -301,7 +347,7 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [currentTeacherId, setCurrentTeacherIdState] = useState<string>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.TEACHER_ID);
-    return saved || 'tch-soc-1'; // Dr. Bilal Qureshi (has rejected paper to try re-upload)
+    return saved || 'tch-unassigned';
   });
 
   // Dynamic registered users
@@ -612,6 +658,43 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return INITIAL_EXAM_RESULTS;
   });
 
+  // Attendance & Exam Eligibility Tracking State
+  const [attendanceThreshold, setAttendanceThresholdState] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.ATTENDANCE_THRESHOLD);
+      if (saved) return Number(saved) || 75;
+    } catch (e) {
+      console.error(e);
+    }
+    return 75;
+  });
+
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.ATTENDANCE);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return INITIAL_ATTENDANCE_RECORDS;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(attendanceRecords));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [attendanceRecords]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ATTENDANCE_THRESHOLD, String(attendanceThreshold));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [attendanceThreshold]);
+
   const showToast = (text: string, type: 'success' | 'info' | 'error' = 'info') => {
     setToastMessage({ text, type });
     setTimeout(() => {
@@ -806,7 +889,17 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentTeacherIdState(id);
   };
 
-  const currentTeacher = teachers.find(t => t.id === currentTeacherId) || teachers[0] || TEACHER_PROFILES[0];
+  const fallbackTeacher: TeacherProfile = {
+    id: 'tch-unassigned',
+    name: 'Unassigned Faculty Member',
+    email: 'faculty@ggmdc.edu.pk',
+    department: 'English',
+    assignedSemesters: [1],
+    designation: 'Instructor',
+    avatarColor: 'bg-emerald-600',
+  };
+
+  const currentTeacher = teachers.find(t => t.id === currentTeacherId) || teachers[0] || fallbackTeacher;
 
   // Global Deadline live countdown & status
   const deadlineStatus = React.useMemo(() => {
@@ -2613,6 +2706,248 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true };
   };
 
+  // =========================================================================
+  // ATTENDANCE & EXAM ELIGIBILITY MANAGEMENT
+  // =========================================================================
+  const setAttendanceThreshold = (threshold: number) => {
+    const valid = Math.max(1, Math.min(100, Math.round(threshold)));
+    setAttendanceThresholdState(valid);
+    // Recalculate eligibility for all records based on new threshold
+    setAttendanceRecords(prev =>
+      prev.map(r => {
+        const { isEligible } = calculateAttendanceEligibility(
+          r.attendedClasses,
+          r.totalClasses,
+          valid,
+          r.isExempted
+        );
+        return { ...r, isEligible };
+      })
+    );
+    showToast(`Attendance exam eligibility threshold set to ${valid}%.`, 'info');
+  };
+
+  const addAttendanceRecord = (
+    data: Omit<AttendanceRecord, 'id' | 'lastUpdated' | 'attendancePercentage' | 'isEligible'>
+  ) => {
+    const roll = data.rollNumber.trim().toUpperCase();
+    const courseCode = data.courseCode.trim().toUpperCase();
+    if (!roll || !courseCode) {
+      return { success: false, error: 'Roll number and Course code are required.' };
+    }
+    if (data.totalClasses <= 0) {
+      return { success: false, error: 'Total classes held must be greater than 0.' };
+    }
+    if (data.attendedClasses < 0 || data.attendedClasses > data.totalClasses) {
+      return { success: false, error: 'Attended classes cannot exceed total classes or be negative.' };
+    }
+
+    const { percentage, isEligible } = calculateAttendanceEligibility(
+      data.attendedClasses,
+      data.totalClasses,
+      attendanceThreshold,
+      data.isExempted
+    );
+
+    const newRec: AttendanceRecord = {
+      ...data,
+      id: `att-${roll.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${courseCode.toLowerCase()}-${Date.now()}`,
+      rollNumber: roll,
+      courseCode,
+      attendancePercentage: percentage,
+      isEligible,
+      lastUpdated: new Date().toISOString(),
+    };
+
+    setAttendanceRecords(prev => {
+      const existingIdx = prev.findIndex(
+        r => r.rollNumber.toUpperCase() === roll && r.courseCode.toUpperCase() === courseCode
+      );
+      if (existingIdx >= 0) {
+        const updated = [...prev];
+        updated[existingIdx] = newRec;
+        return updated;
+      }
+      return [newRec, ...prev];
+    });
+
+    showToast(
+      `Attendance record for ${roll} (${courseCode}) recorded. Status: ${isEligible ? 'Eligible' : 'Short Attendance'}.`,
+      'success'
+    );
+    return { success: true };
+  };
+
+  const bulkUploadAttendance = (
+    records: Array<{
+      rollNumber: string;
+      studentName?: string;
+      department?: SubjectType;
+      semester?: SemesterNumber;
+      courseCode?: string;
+      courseTitle?: string;
+      totalClasses: number;
+      attendedClasses: number;
+      isExempted?: boolean;
+      exemptionReason?: string;
+    }>
+  ) => {
+    let importedCount = 0;
+    let updatedCount = 0;
+    const errors: string[] = [];
+    const newOrUpdatedList: AttendanceRecord[] = [];
+
+    for (let i = 0; i < records.length; i++) {
+      const row = records[i];
+      const roll = (row.rollNumber || '').trim().toUpperCase();
+      const cCode = (row.courseCode || '').trim().toUpperCase();
+
+      if (!roll) {
+        errors.push(`Row ${i + 1}: Missing student roll number.`);
+        continue;
+      }
+      if (!cCode) {
+        errors.push(`Row ${i + 1} (${roll}): Missing course code.`);
+        continue;
+      }
+      const total = Number(row.totalClasses);
+      const attended = Number(row.attendedClasses);
+      if (isNaN(total) || total <= 0) {
+        errors.push(`Row ${i + 1} (${roll} - ${cCode}): Total classes must be a positive number.`);
+        continue;
+      }
+      if (isNaN(attended) || attended < 0 || attended > total) {
+        errors.push(
+          `Row ${i + 1} (${roll} - ${cCode}): Attended classes (${attended}) must be between 0 and total (${total}).`
+        );
+        continue;
+      }
+
+      const st = students.find(s => s.rollNumber.toUpperCase() === roll);
+      const crs = courses.find(c => c.code.toUpperCase() === cCode);
+
+      const stName = row.studentName?.trim() || st?.name || `Candidate ${roll}`;
+      const dept = row.department || st?.department || crs?.subject || 'English';
+      const sem = row.semester || st?.currentSemester || crs?.semester || 1;
+      const cTitle = row.courseTitle?.trim() || crs?.title || cCode;
+
+      const { percentage, isEligible } = calculateAttendanceEligibility(
+        attended,
+        total,
+        attendanceThreshold,
+        row.isExempted
+      );
+
+      newOrUpdatedList.push({
+        id: `att-${roll.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${cCode.toLowerCase()}`,
+        rollNumber: roll,
+        studentName: stName,
+        department: dept as SubjectType,
+        semester: sem as SemesterNumber,
+        courseCode: cCode,
+        courseTitle: cTitle,
+        totalClasses: total,
+        attendedClasses: attended,
+        attendancePercentage: percentage,
+        isEligible,
+        isExempted: !!row.isExempted,
+        exemptionReason: row.exemptionReason,
+        lastUpdated: new Date().toISOString(),
+      });
+    }
+
+    if (newOrUpdatedList.length === 0) {
+      return { success: false, importedCount: 0, updatedCount: 0, errors };
+    }
+
+    setAttendanceRecords(prev => {
+      const map = new Map<string, AttendanceRecord>();
+      prev.forEach(r => map.set(`${r.rollNumber.toUpperCase()}_${r.courseCode.toUpperCase()}`, r));
+      newOrUpdatedList.forEach(r => {
+        const key = `${r.rollNumber.toUpperCase()}_${r.courseCode.toUpperCase()}`;
+        if (map.has(key)) {
+          updatedCount++;
+        } else {
+          importedCount++;
+        }
+        map.set(key, r);
+      });
+      return Array.from(map.values());
+    });
+
+    showToast(`Attendance processed: ${importedCount} created, ${updatedCount} updated.`, 'success');
+    return { success: true, importedCount, updatedCount, errors };
+  };
+
+  const updateAttendanceRecord = (id: string, updates: Partial<AttendanceRecord>) => {
+    setAttendanceRecords(prev =>
+      prev.map(r => {
+        if (r.id !== id) return r;
+        const total = updates.totalClasses !== undefined ? updates.totalClasses : r.totalClasses;
+        const attended = updates.attendedClasses !== undefined ? updates.attendedClasses : r.attendedClasses;
+        const isExempted = updates.isExempted !== undefined ? updates.isExempted : r.isExempted;
+        const { percentage, isEligible } = calculateAttendanceEligibility(
+          attended,
+          total,
+          attendanceThreshold,
+          isExempted
+        );
+        return {
+          ...r,
+          ...updates,
+          totalClasses: total,
+          attendedClasses: attended,
+          attendancePercentage: percentage,
+          isEligible,
+          lastUpdated: new Date().toISOString(),
+        };
+      })
+    );
+    showToast('Attendance record updated.', 'success');
+    return { success: true };
+  };
+
+  const toggleAttendanceExemption = (id: string, reason?: string) => {
+    setAttendanceRecords(prev =>
+      prev.map(r => {
+        if (r.id !== id) return r;
+        const newExempted = !r.isExempted;
+        const { isEligible } = calculateAttendanceEligibility(
+          r.attendedClasses,
+          r.totalClasses,
+          attendanceThreshold,
+          newExempted
+        );
+        return {
+          ...r,
+          isExempted: newExempted,
+          exemptionReason: newExempted
+            ? reason || 'Official Medical / Dean Special Board Exemption Granted'
+            : undefined,
+          isEligible,
+          lastUpdated: new Date().toISOString(),
+        };
+      })
+    );
+    showToast('Exemption status updated.', 'info');
+  };
+
+  const deleteAttendanceRecord = (id: string) => {
+    setAttendanceRecords(prev => prev.filter(r => r.id !== id));
+    showToast('Attendance record removed.', 'info');
+    return { success: true };
+  };
+
+  const clearAllAttendance = () => {
+    setAttendanceRecords([]);
+    try {
+      localStorage.removeItem(STORAGE_KEYS.ATTENDANCE);
+    } catch (e) {
+      console.error(e);
+    }
+    showToast('All attendance records cleared.', 'info');
+  };
+
   const resetAllData = () => {
     setPapers(INITIAL_EXAM_PAPERS);
     setNotifications(INITIAL_NOTIFICATIONS);
@@ -2626,6 +2961,8 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSubjects(ALL_SUBJECTS);
     setSemesters(ALL_SEMESTERS);
     setCourses(COURSES_CATALOG);
+    setAttendanceRecords(INITIAL_ATTENDANCE_RECORDS);
+    setAttendanceThresholdState(75);
     setIsSessionConcluded(false);
     setConcludedSessionDetails(null);
     sessionStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
@@ -2642,9 +2979,11 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem(STORAGE_KEYS.SUBJECTS);
     localStorage.removeItem(STORAGE_KEYS.SEMESTERS);
     localStorage.removeItem(STORAGE_KEYS.COURSES);
+    localStorage.removeItem(STORAGE_KEYS.ATTENDANCE);
+    localStorage.removeItem(STORAGE_KEYS.ATTENDANCE_THRESHOLD);
     localStorage.removeItem(STORAGE_KEYS.SESSION_CONCLUDED);
     localStorage.removeItem(STORAGE_KEYS.SESSION_DETAILS);
-    showToast('Demo dataset reset to initial state.', 'info');
+    showToast('All data for students, employees, teachers, QA and paper submissions cleared to nil. System ready for development.', 'info');
   };
 
   return (
@@ -2737,6 +3076,17 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         graduatePassoutStudent,
         restoreStudentFromArchive,
         deleteStudent,
+
+        // Attendance & Exam Eligibility Tracking
+        attendanceRecords,
+        attendanceThreshold,
+        setAttendanceThreshold,
+        addAttendanceRecord,
+        bulkUploadAttendance,
+        updateAttendanceRecord,
+        toggleAttendanceExemption,
+        deleteAttendanceRecord,
+        clearAllAttendance,
 
         // Actions
         adminSendCallNotification,

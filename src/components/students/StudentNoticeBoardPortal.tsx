@@ -30,11 +30,13 @@ import { formatReadableDate } from '../../utils/whatsapp';
 interface StudentNoticeBoardPortalProps {
   initialRollNumber?: string;
   onClose?: () => void;
+  hideSchedule?: boolean;
 }
 
 export const StudentNoticeBoardPortal: React.FC<StudentNoticeBoardPortalProps> = ({
   initialRollNumber,
   onClose,
+  hideSchedule = false,
 }) => {
   const {
     students,
@@ -428,18 +430,20 @@ export const StudentNoticeBoardPortal: React.FC<StudentNoticeBoardPortalProps> =
                 <span>2. Official Roll Number Slip (Admit Card)</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => setPortalTab('date_sheet')}
-                className={`flex items-center gap-2 py-3 px-3 border-b-2 transition cursor-pointer shrink-0 ${
-                  portalTab === 'date_sheet'
-                    ? 'border-emerald-600 text-emerald-950 bg-emerald-50/50'
-                    : 'border-transparent text-slate-600 hover:text-slate-950'
-                }`}
-              >
-                <Calendar className="w-4 h-4 text-emerald-600" />
-                <span>3. Examination Schedule &amp; Rooms ({scheduledExams.length})</span>
-              </button>
+              {!hideSchedule && (
+                <button
+                  type="button"
+                  onClick={() => setPortalTab('date_sheet')}
+                  className={`flex items-center gap-2 py-3 px-3 border-b-2 transition cursor-pointer shrink-0 ${
+                    portalTab === 'date_sheet'
+                      ? 'border-emerald-600 text-emerald-950 bg-emerald-50/50'
+                      : 'border-transparent text-slate-600 hover:text-slate-950'
+                  }`}
+                >
+                  <Calendar className="w-4 h-4 text-emerald-600" />
+                  <span>3. Examination Schedule &amp; Rooms ({scheduledExams.length})</span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -886,7 +890,7 @@ export const StudentNoticeBoardPortal: React.FC<StudentNoticeBoardPortalProps> =
             )}
 
             {/* Tab 2: Examination Schedule & Rooms */}
-            {portalTab === 'date_sheet' && (
+            {!hideSchedule && portalTab === 'date_sheet' && (
               <div className="p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">

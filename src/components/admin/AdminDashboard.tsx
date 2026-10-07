@@ -39,6 +39,7 @@ import {
   CalendarDays,
   BarChart3,
   FileText,
+  CalendarCheck,
 } from 'lucide-react';
 import { WhatsAppNotificationModal } from '../common/WhatsAppNotificationModal';
 import { EditUserModal } from './EditUserModal';
@@ -46,6 +47,7 @@ import { ExamScheduleCalendar } from '../calendar/ExamScheduleCalendar';
 import { UpcomingExamsSummaryChart } from './UpcomingExamsSummaryChart';
 import { StudentRegistryManager } from '../students/StudentRegistryManager';
 import { StudentNoticeBoardPortal } from '../students/StudentNoticeBoardPortal';
+import { AttendanceTracker } from './AttendanceTracker';
 import {
   WhatsAppTemplateType,
   openWhatsApp,
@@ -80,8 +82,8 @@ export const AdminDashboard: React.FC = () => {
     courses,
   } = useExam();
 
-  // Admin Top-level Tab state: 'datesheet' vs 'calendar' vs 'analytics' vs 'matrix' vs 'approvals' vs 'curriculum' vs 'students' vs 'student_portal'
-  const [activeAdminTab, setActiveAdminTab] = useState<'datesheet' | 'calendar' | 'analytics' | 'matrix' | 'approvals' | 'curriculum' | 'students' | 'student_portal'>('datesheet');
+  // Admin Top-level Tab state: 'datesheet' vs 'calendar' vs 'analytics' vs 'matrix' vs 'approvals' vs 'curriculum' vs 'students' vs 'student_portal' vs 'attendance'
+  const [activeAdminTab, setActiveAdminTab] = useState<'datesheet' | 'calendar' | 'analytics' | 'matrix' | 'approvals' | 'curriculum' | 'students' | 'student_portal' | 'attendance'>('datesheet');
   const [noticeBoardRoll, setNoticeBoardRoll] = useState<string>('');
 
   // User Approvals & Editing State
@@ -453,7 +455,10 @@ export const AdminDashboard: React.FC = () => {
 
           <button
             id="admin-tab-noticeboard"
-            onClick={() => setActiveAdminTab('student_portal')}
+            onClick={() => {
+              setNoticeBoardRoll('');
+              setActiveAdminTab('student_portal');
+            }}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
               activeAdminTab === 'student_portal'
                 ? 'bg-white text-emerald-950 shadow-xs border border-emerald-200/50'
@@ -462,6 +467,19 @@ export const AdminDashboard: React.FC = () => {
           >
             <FileText className="w-4 h-4 text-teal-600" />
             <span>8. Result Notice Board &amp; Roll Slips</span>
+          </button>
+
+          <button
+            id="admin-tab-attendance"
+            onClick={() => setActiveAdminTab('attendance')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+              activeAdminTab === 'attendance'
+                ? 'bg-white text-emerald-950 shadow-xs border border-emerald-200/50'
+                : 'text-slate-600 hover:text-emerald-900'
+            }`}
+          >
+            <CalendarCheck className="w-4 h-4 text-emerald-600" />
+            <span>9. Attendance &amp; Exam Eligibility</span>
           </button>
         </div>
 
@@ -1299,6 +1317,9 @@ export const AdminDashboard: React.FC = () => {
           initialRollNumber={noticeBoardRoll}
         />
       )}
+
+      {/* Tab 9: Attendance Tracking & Exam Eligibility */}
+      {activeAdminTab === 'attendance' && <AttendanceTracker />}
 
       {/* Modal for Admin to Dispatch Paper Submission Call */}
       {showCallModal && (

@@ -35,7 +35,8 @@ export const GlobalDeadlineModal: React.FC = () => {
 
   if (!isDeadlineModalOpen) return null;
 
-  const isAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
+  // Strict institutional policy: Only Admin role can adjust paper deadline
+  const isAdmin = currentRole === 'admin';
 
   // Fast extension helper
   const handleQuickExtend = (daysToAdd: number) => {
@@ -321,6 +322,10 @@ export const GlobalDeadlineModal: React.FC = () => {
             </form>
           ) : (
             <div className="space-y-3 pt-2 border-t border-slate-100">
+              <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-xs flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Strict Regulatory Policy: Only the Administrator (Controller of Examinations) can adjust or extend paper submission deadlines.</span>
+              </div>
               <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-200/80 text-xs space-y-2">
                 <div className="flex items-center gap-1.5 font-bold text-emerald-950">
                   <Info className="w-4 h-4 text-emerald-600" />
