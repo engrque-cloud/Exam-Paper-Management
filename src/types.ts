@@ -140,6 +140,29 @@ export interface ExamDateSheetRow {
   status: 'Scheduled' | 'Verified' | 'Conducted';
   paperVersion: number;
   dutyConfirmed?: boolean;
+  isConfirmed?: boolean;
+}
+
+export type PaperPipelineStage =
+  | 'stuck_at_teacher_upload'
+  | 'stuck_at_qa_review'
+  | 'stuck_at_teacher_revision'
+  | 'qa_approved'
+  | 'fully_scheduled';
+
+export interface CoursePipelineItem {
+  course: Course;
+  paper?: ExamPaper;
+  dateSheetRow?: ExamDateSheetRow;
+  stage: PaperPipelineStage;
+  stageLabel: string;
+  stageStep: number; // 1 to 5
+  stuckParty: string;
+  stuckPartyRole: UserRole;
+  stuckPartyId?: string;
+  stuckDurationDays: number;
+  severity: 'urgent' | 'warning' | 'normal' | 'completed';
+  actionNeeded: string;
 }
 
 export interface DutyRosterItem {

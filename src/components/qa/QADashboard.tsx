@@ -17,6 +17,8 @@ import {
   ArrowRight,
   ShieldCheck,
   FileCheck2,
+  Download,
+  ExternalLink,
 } from 'lucide-react';
 import { QAPaperDistributionChart } from './QAPaperDistributionChart';
 
@@ -42,47 +44,30 @@ export const QADashboard: React.FC = () => {
     bloomsTaxonomy: true,
   });
   const [feedbackNotes, setFeedbackNotes] = useState('');
-  const [rejectionReasons, setRejectionReasons] = useState<string[]>([]);
-
-  // Pre-configured common rejection reasons for fast selection
-  const COMMON_DEFICIENCIES = [
-    'Total marks mismatch between section tally and declared exam total.',
-    'Insufficient higher-order analytical questions (Bloom\'s Taxonomy violation).',
-    'Missing candidate instructions header and time allocation parameters.',
-    'Lack of elective choice questions in descriptive / essay section.',
-    'Ambiguity in phrasing of technical terms in Question 2/3.',
-  ];
+  const [issueError, setIssueError] = useState<string | null>(null);
 
   // Open evaluation modal
   const openEvaluationModal = (paper: ExamPaper) => {
     setEvaluatingPaper(paper);
-    // Auto check marks tally
-    const calculatedSum = paper.sections.reduce((acc, s) => acc + s.marks, 0);
-    const marksMatch = calculatedSum === paper.totalMarks;
-
+    setFeedbackNotes('');
+    setIssueError(null);
     setRubricScores({
       curriculumAlignment: true,
-      marksTallyAccuracy: marksMatch,
+      marksTallyAccuracy: true,
       difficultyDistribution: true,
       formattingStandard: true,
       bloomsTaxonomy: true,
     });
-
-    setFeedbackNotes(
-      marksMatch
-        ? `Thoroughly reviewed ${paper.courseCode}. Questions conform to syllabus requirements with comprehensive learning outcomes and balanced cognitive distribution. Recommended for examination printing.`
-        : `Calculated question marks total ${calculatedSum}, which does not equal the required total of ${paper.totalMarks}. Please recalibrate section marks.`
-    );
-    setRejectionReasons([]);
   };
 
   // Submit Approval
   const handleApprove = () => {
     if (!evaluatingPaper) return;
+    setIssueError(null);
     qaReviewPaper(evaluatingPaper.id, 'approved', {
       reviewerName,
       rubricScores,
-      feedbackNotes: feedbackNotes || 'Approved without reservations. Ready for upcoming examination date sheet generation.',
+      feedbackNotes: feedbackNotes.trim() || 'Question paper approved by QA Cell without issues. Ready for examination date sheet and printing.',
     });
     setEvaluatingPaper(null);
   };
@@ -90,15 +75,17 @@ export const QADashboard: React.FC = () => {
   // Submit Rejection
   const handleReject = () => {
     if (!evaluatingPaper) return;
-    const reasons = rejectionReasons.length > 0 ? rejectionReasons : [
-      feedbackNotes || 'Paper formatting or marks breakdown does not satisfy quality standards.'
-    ];
-
+    const issueText = feedbackNotes.trim();
+    if (!issueText) {
+      setIssueError('Please state what the issue is before rejecting the paper so the teacher knows what to correct.');
+      return;
+    }
+    setIssueError(null);
     qaReviewPaper(evaluatingPaper.id, 'rejected', {
       reviewerName,
       rubricScores,
-      feedbackNotes: feedbackNotes || 'Correction required by the teacher before re-submission.',
-      rejectionReasons: reasons,
+      feedbackNotes: issueText,
+      rejectionReasons: [issueText],
     });
     setEvaluatingPaper(null);
   };
@@ -383,7 +370,7 @@ export const QADashboard: React.FC = () => {
           onClick={() => setEvaluatingPaper(null)}
         >
           <div
-            className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl border border-slate-200 overflow-hidden my-6"
+            className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl border border-slate-200 overflow-hidden my-6"
             onClick={e => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -448,114 +435,181 @@ export const QADashboard: React.FC = () => {
                 </button>
               </div>
 
-              {/* Quality Rubric Checklist */}
-              <div>
-                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-indigo-600" />
-                  Examination Quality Assurance Rubric Checklist
-                </h4>
+              {/* Uploaded Paper Document & Questions Preview */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-indigo-600" />
+                    <span>Uploaded Paper Preview</span>
+                  </h4>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const sectionsText = (evaluatingPaper.sections || []).length > 0
+                          ? '\n\nQuestions:\n' +
+                            evaluatingPaper.sections
+                              .map(
+                                s =>
+                                  `\n${s.title} (${s.marks} Marks)\n` +
+                                  s.questions.map(q => `${q.qNum}: ${q.text} [${q.marks}M]`).join('\n')
+                              )
+                              .join('\n')
+                          : `\n\nOfficial Examination Paper Document: ${evaluatingPaper.file.name}\n`;
 
-                <div className="space-y-2 text-xs">
-                  <label className="flex items-start gap-3 p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={rubricScores.curriculumAlignment}
-                      onChange={e => setRubricScores({ ...rubricScores, curriculumAlignment: e.target.checked })}
-                      className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
-                    />
-                    <div>
-                      <span className="font-semibold text-slate-800 block">1. Curriculum & Syllabus Alignment</span>
-                      <span className="text-slate-500 text-[11px]">
-                        Questions correspond directly to prescribed syllabus learning outcomes for Semester {evaluatingPaper.semester}.
-                      </span>
-                    </div>
-                  </label>
+                        const blob = new Blob(
+                          [
+                            `CONFIDENTIAL EXAMINATION QUESTION PAPER\nCourse: ${evaluatingPaper.courseCode} - ${evaluatingPaper.courseTitle}\nSubject: ${evaluatingPaper.subject} (Semester ${evaluatingPaper.semester})\nTotal Marks: ${evaluatingPaper.totalMarks}\nTime Allowed: ${evaluatingPaper.durationMinutes} mins\nTeacher: ${evaluatingPaper.teacherName}\nStatus: ${evaluatingPaper.status}` +
+                              sectionsText,
+                          ],
+                          { type: 'text/plain;charset=utf-8' }
+                        );
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = evaluatingPaper.file.name;
+                        a.click();
+                      }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition"
+                      title="Download file"
+                    >
+                      <Download className="w-3.5 h-3.5 text-slate-600" />
+                      <span>Download</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewPaper(evaluatingPaper)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition"
+                      title="Open full preview"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Fullscreen View</span>
+                    </button>
+                  </div>
+                </div>
 
-                  <label className="flex items-start gap-3 p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={rubricScores.marksTallyAccuracy}
-                      onChange={e => setRubricScores({ ...rubricScores, marksTallyAccuracy: e.target.checked })}
-                      className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
-                    />
-                    <div>
-                      <span className="font-semibold text-slate-800 block">2. Marks Tally Accuracy Verification</span>
-                      <span className="text-slate-500 text-[11px]">
-                        Individual question marks and section subtotals correctly sum up to {evaluatingPaper.totalMarks} marks without mathematical discrepancy.
-                      </span>
+                {/* Preview Sheet Container */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 overflow-hidden">
+                  {evaluatingPaper.file.fileDataUrl && (
+                    <div className="mb-4 rounded-lg overflow-hidden border border-slate-300 bg-white">
+                      {evaluatingPaper.file.type === 'pdf' ? (
+                        <iframe
+                          src={evaluatingPaper.file.fileDataUrl}
+                          className="w-full h-72 border-0"
+                          title="Uploaded Paper PDF"
+                        />
+                      ) : (
+                        <div className="p-3 flex justify-center bg-slate-100">
+                          <img
+                            src={evaluatingPaper.file.fileDataUrl}
+                            alt="Uploaded Paper Preview"
+                            className="max-h-72 object-contain rounded border border-slate-300"
+                          />
+                        </div>
+                      )}
                     </div>
-                  </label>
+                  )}
 
-                  <label className="flex items-start gap-3 p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={rubricScores.bloomsTaxonomy}
-                      onChange={e => setRubricScores({ ...rubricScores, bloomsTaxonomy: e.target.checked })}
-                      className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
-                    />
-                    <div>
-                      <span className="font-semibold text-slate-800 block">3. Bloom's Taxonomy & Difficulty Spread</span>
-                      <span className="text-slate-500 text-[11px]">
-                        Balanced division between foundational recall (30-40%) and higher-order critical evaluation/analysis (60-70%).
-                      </span>
-                    </div>
-                  </label>
+                  {evaluatingPaper.sections && evaluatingPaper.sections.length > 0 ? (
+                    <div className="bg-white rounded-xl border border-slate-300 p-5 font-serif text-slate-900 shadow-2xs max-h-72 overflow-y-auto space-y-4">
+                      <div className="text-center border-b pb-3 border-slate-200">
+                        <h5 className="font-bold text-sm uppercase tracking-wide">
+                          Govt. Girls Model Degree College, Quetta
+                        </h5>
+                        <p className="text-xs text-slate-600 font-sans mt-0.5">
+                          {evaluatingPaper.examType} Examination &bull; {evaluatingPaper.courseCode}: {evaluatingPaper.courseTitle}
+                        </p>
+                        <div className="text-[11px] text-slate-500 font-sans flex justify-center flex-wrap gap-3 mt-1">
+                          <span>Time Allowed: {evaluatingPaper.durationMinutes} Mins</span>
+                          <span>&bull;</span>
+                          <span>Max Marks: {evaluatingPaper.totalMarks}</span>
+                          <span>&bull;</span>
+                          <span>Dept: {evaluatingPaper.subject}</span>
+                          <span>&bull;</span>
+                          <span>Semester {evaluatingPaper.semester}</span>
+                        </div>
+                      </div>
 
-                  <label className="flex items-start gap-3 p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={rubricScores.formattingStandard}
-                      onChange={e => setRubricScores({ ...rubricScores, formattingStandard: e.target.checked })}
-                      className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
-                    />
-                    <div>
-                      <span className="font-semibold text-slate-800 block">4. Official Formatting & Clarity of Instructions</span>
-                      <span className="text-slate-500 text-[11px]">
-                        Standard typography, university header, time allowances, and unambiguous candidate instructions.
-                      </span>
+                      {evaluatingPaper.sections.map((section, sIdx) => (
+                        <div key={sIdx} className="space-y-2 border-b border-slate-100 pb-3 last:border-b-0">
+                          <div className="flex items-center justify-between font-sans">
+                            <h6 className="font-bold text-xs text-slate-800 uppercase">{section.title}</h6>
+                            <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full">
+                              {section.marks} Marks
+                            </span>
+                          </div>
+                          {section.instructions && (
+                            <p className="text-xs italic text-slate-500 font-sans">{section.instructions}</p>
+                          )}
+                          <div className="space-y-1.5 pl-2">
+                            {section.questions.map((q, qIdx) => (
+                              <div key={qIdx} className="flex items-start justify-between text-xs gap-3">
+                                <div className="flex-1">
+                                  <span className="font-bold font-sans mr-2">{q.qNum}:</span>
+                                  <span>{q.text}</span>
+                                </div>
+                                <span className="font-sans font-semibold text-slate-500 text-[11px] shrink-0">
+                                  [{q.marks} M]
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  </label>
+                  ) : (
+                    <div className="bg-white rounded-xl border border-slate-200 p-5 flex items-center gap-4">
+                      <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl shrink-0">
+                        <FileText className="w-8 h-8" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <h5 className="font-bold text-sm text-slate-900 truncate">
+                            {evaluatingPaper.file.name}
+                          </h5>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 uppercase">
+                            {evaluatingPaper.file.type}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Size: {evaluatingPaper.file.sizeKb} KB &bull; Uploaded on{' '}
+                          {new Date(evaluatingPaper.file.uploadedAt).toLocaleDateString()} by {evaluatingPaper.teacherName}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Reviewer Feedback Notes */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  QA Evaluation Feedback & Remarks
+              {/* What is the Issue Text Box */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-800 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-600" />
+                    <span>What is the issue with this paper?</span>
+                  </span>
+                  <span className="text-[11px] font-normal text-slate-500">
+                    (Required if rejecting, optional if approving)
+                  </span>
                 </label>
                 <textarea
-                  rows={3}
+                  rows={4}
                   value={feedbackNotes}
-                  onChange={e => setFeedbackNotes(e.target.value)}
-                  placeholder="Enter detailed feedback or praise for the question paper..."
-                  className="w-full text-xs px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none font-sans"
+                  onChange={e => {
+                    setFeedbackNotes(e.target.value);
+                    if (issueError) setIssueError(null);
+                  }}
+                  placeholder="Type the issue here (e.g., marks distribution is incorrect, syllabus mismatch, missing questions, formatting errors, or notes for the faculty member)..."
+                  className={`w-full text-xs px-3.5 py-3 border-2 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:outline-none font-sans text-slate-900 placeholder:text-slate-400 bg-white transition ${
+                    issueError ? 'border-rose-400 bg-rose-50/20' : 'border-slate-300 focus:border-indigo-600'
+                  }`}
                 />
-              </div>
-
-              {/* Specific Deficiencies Selection (used if rejecting) */}
-              <div className="p-3 bg-rose-50/70 border border-rose-200 rounded-xl">
-                <span className="text-xs font-bold text-rose-900 block mb-1">
-                  Deficiency Checklist (Select if Rejecting Paper):
-                </span>
-                <div className="space-y-1 text-[11px]">
-                  {COMMON_DEFICIENCIES.map((def, idx) => (
-                    <label key={idx} className="flex items-start gap-2 text-rose-800 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={rejectionReasons.includes(def)}
-                        onChange={e => {
-                          if (e.target.checked) {
-                            setRejectionReasons([...rejectionReasons, def]);
-                          } else {
-                            setRejectionReasons(rejectionReasons.filter(r => r !== def));
-                          }
-                        }}
-                        className="mt-0.5 rounded text-rose-600 focus:ring-rose-500 w-3.5 h-3.5"
-                      />
-                      <span>{def}</span>
-                    </label>
-                  ))}
-                </div>
+                {issueError && (
+                  <p className="text-xs font-semibold text-rose-600 flex items-center gap-1 mt-1">
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span>{issueError}</span>
+                  </p>
+                )}
               </div>
 
               {/* Reviewer Identification */}

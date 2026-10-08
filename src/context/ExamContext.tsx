@@ -18,6 +18,7 @@ import {
   StudentResultEntry,
   Student,
   AttendanceRecord,
+  CoursePipelineItem,
 } from '../types';
 import {
   TEACHER_PROFILES,
@@ -200,6 +201,14 @@ interface ExamContextType {
     rowId: string;
     target: 'paper_setter' | 'chief_invigilator' | 'assistant_invigilator' | 'both';
   }) => void;
+  // Date Sheet Confirmation & Paper Lifecycle Synchronization
+  syncPaperLifecycleWithDateSheet: (options?: {
+    onlyConfirmed?: boolean;
+    autoUpdateDateSheetState?: boolean;
+  }) => CoursePipelineItem[];
+  getConfirmedDateSheetRows: () => ExamDateSheetRow[];
+  confirmDateSheetRow: (rowId: string, confirmed?: boolean) => void;
+  confirmAllDateSheetRows: () => void;
   addNotification: (params: {
     title: string;
     message: string;
@@ -2113,6 +2122,199 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
+  // Helper to determine if a date sheet entry is confirmed
+  const isConfirmedDateSheetEntry = (row: ExamDateSheetRow): boolean => {
+    if (row.isConfirmed === true) return true;
+    if (row.dutyConfirmed === true) return true;
+    if (row.status === 'Verified' || row.status === 'Conducted') return true;
+    if (row.isConfirmed === false || row.dutyConfirmed === false || (row.status as string) === 'Draft') {
+      return false;
+    }
+    // Any scheduled date sheet row with an assigned exam date is active and confirmed
+    return Boolean(row.examDate && (row.status === 'Scheduled' || !row.status));
+  };
+
+  // Helper to query only confirmed date sheet records
+  const getConfirmedDateSheetRows = (): ExamDateSheetRow[] => {
+    return dateSheetRows.filter(isConfirmedDateSheetEntry);
+  };
+
+  // Confirm or unconfirm a specific date sheet row
+  const confirmDateSheetRow = (rowId: string, confirmed: boolean = true) => {
+    setDateSheetRows(prev =>
+      prev.map(r => {
+        if (r.id !== rowId) return r;
+        return {
+          ...r,
+          isConfirmed: confirmed,
+          dutyConfirmed: confirmed,
+          status: confirmed ? (r.status === 'Conducted' ? 'Conducted' : 'Verified') : 'Scheduled',
+        };
+      })
+    );
+    showToast(
+      confirmed ? 'Date sheet entry confirmed & verified.' : 'Date sheet entry marked as pending confirmation.',
+      confirmed ? 'success' : 'info'
+    );
+  };
+
+  // Bulk confirm all active date sheet rows
+  const confirmAllDateSheetRows = () => {
+    setDateSheetRows(prev =>
+      prev.map(r => ({
+        ...r,
+        isConfirmed: true,
+        dutyConfirmed: true,
+        status: r.status === 'Conducted' ? 'Conducted' : 'Verified',
+      }))
+    );
+    showToast(`All ${dateSheetRows.length} active date sheet entries confirmed!`, 'success');
+  };
+
+  // Synchronize the 'Paper Submission Lifecycle' tracker with active datesheet records in ExamProvider state
+  const syncPaperLifecycleWithDateSheet = (options?: {
+    onlyConfirmed?: boolean;
+    autoUpdateDateSheetState?: boolean;
+  }): CoursePipelineItem[] => {
+    const onlyConfirmed = options?.onlyConfirmed ?? true;
+    const targetRows = onlyConfirmed ? dateSheetRows.filter(isConfirmedDateSheetEntry) : dateSheetRows;
+
+    let hasDateSheetUpdates = false;
+    const updatedDateSheetRows = [...dateSheetRows];
+
+    const synchronizedItems: CoursePipelineItem[] = targetRows.map(dateSheetRow => {
+      const course = courses.find(c => c.code === dateSheetRow.courseCode) || {
+        id: dateSheetRow.courseCode,
+        code: dateSheetRow.courseCode,
+        title: dateSheetRow.courseTitle,
+        subject: dateSheetRow.subject,
+        semester: dateSheetRow.semester,
+        creditHours: 3,
+      };
+
+      const paper = papers.find(
+        p => p.id === dateSheetRow.paperId || p.courseCode === dateSheetRow.courseCode
+      );
+
+      // Check if DateSheet state needs synchronization regarding paper uploaded flag or version
+      if (options?.autoUpdateDateSheetState && paper) {
+        const rowIndex = updatedDateSheetRows.findIndex(r => r.id === dateSheetRow.id);
+        if (rowIndex !== -1) {
+          const row = updatedDateSheetRows[rowIndex];
+          if (!row.paperUploaded || row.paperVersion !== (paper.version || 1)) {
+            updatedDateSheetRows[rowIndex] = {
+              ...row,
+              paperUploaded: true,
+              paperVersion: paper.version || 1,
+              paperId: paper.id,
+            };
+            hasDateSheetUpdates = true;
+          }
+        }
+      }
+
+      // Find assigned teacher from date sheet or faculty list
+      const assignedTeacher = teachers.find(
+        t => t.id === dateSheetRow.paperSetterTeacherId || t.name === dateSheetRow.paperSetterTeacherName
+      ) || teachers.find(
+        t => t.department === dateSheetRow.subject && t.assignedSemesters.includes(dateSheetRow.semester)
+      ) || teachers.find(t => t.department === dateSheetRow.subject);
+
+      const teacherName = dateSheetRow.paperSetterTeacherName || assignedTeacher?.name || 'Assigned Faculty';
+      const teacherId = dateSheetRow.paperSetterTeacherId || assignedTeacher?.id;
+
+      if (!paper) {
+        // Stage 1: Stuck at teacher upload
+        return {
+          course,
+          paper: undefined,
+          dateSheetRow,
+          stage: 'stuck_at_teacher_upload' as const,
+          stageLabel: 'Faculty Paper Draft Pending',
+          stageStep: 1,
+          stuckParty: teacherName,
+          stuckPartyRole: 'teacher' as const,
+          stuckPartyId: teacherId,
+          stuckDurationDays: 4,
+          severity: 'urgent' as const,
+          actionNeeded: `Faculty (${teacherName}) must draft & submit question paper for ${dateSheetRow.examDate} exam`,
+        };
+      }
+
+      if (paper.status === 'pending_qa') {
+        // Stage 2: Stuck at QA review
+        return {
+          course,
+          paper,
+          dateSheetRow,
+          stage: 'stuck_at_qa_review' as const,
+          stageLabel: 'Awaiting QA Paper Review',
+          stageStep: 2,
+          stuckParty: 'QA Committee Cell',
+          stuckPartyRole: 'qa' as const,
+          stuckDurationDays: 2,
+          severity: 'warning' as const,
+          actionNeeded: 'QA Cell must validate against syllabus rubric before exam conduction',
+        };
+      }
+
+      if (paper.status === 'qa_rejected') {
+        // Stage 3: Stuck at faculty revision
+        return {
+          course,
+          paper,
+          dateSheetRow,
+          stage: 'stuck_at_teacher_revision' as const,
+          stageLabel: 'QA Rejected (Correction Required)',
+          stageStep: 2,
+          stuckParty: paper.teacherName || teacherName,
+          stuckPartyRole: 'teacher' as const,
+          stuckPartyId: paper.teacherId || teacherId,
+          stuckDurationDays: 3,
+          severity: 'urgent' as const,
+          actionNeeded: 'Faculty must revise paper per QA remarks & re-upload v2',
+        };
+      }
+
+      if (paper.status === 'qa_approved') {
+        return {
+          course,
+          paper,
+          dateSheetRow,
+          stage: 'fully_scheduled' as const,
+          stageLabel: 'QA Certified & Confirmed on Date Sheet',
+          stageStep: 5,
+          stuckParty: 'None (Ready for Exam Conduction)',
+          stuckPartyRole: 'principal' as const,
+          stuckDurationDays: 0,
+          severity: 'completed' as const,
+          actionNeeded: `Clearance authorized for ${dateSheetRow.examDate} (${dateSheetRow.shift}) in ${dateSheetRow.hallLocation}`,
+        };
+      }
+
+      return {
+        course,
+        paper,
+        dateSheetRow,
+        stage: 'stuck_at_teacher_upload' as const,
+        stageLabel: 'Pending Submission',
+        stageStep: 1,
+        stuckParty: teacherName,
+        stuckPartyRole: 'teacher' as const,
+        stuckPartyId: teacherId,
+        stuckDurationDays: 1,
+        severity: 'warning' as const,
+        actionNeeded: 'Action required',
+      };
+    });
+
+    if (hasDateSheetUpdates && options?.autoUpdateDateSheetState) {
+      setDateSheetRows(updatedDateSheetRows);
+    }
+
+    return synchronizedItems;
+  };
+
   // Add system notification
   const addNotification = (params: {
     title: string;
@@ -3098,6 +3300,10 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         deleteDateSheetRow,
         autoScheduleAllCoursesDateSheet,
         sendDateSheetWhatsApp,
+        syncPaperLifecycleWithDateSheet,
+        getConfirmedDateSheetRows,
+        confirmDateSheetRow,
+        confirmAllDateSheetRows,
         addNotification,
         showToast,
         markNotificationAsRead,

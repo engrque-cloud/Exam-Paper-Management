@@ -21,6 +21,7 @@ import {
   Sparkles,
   Check,
   MessageSquare,
+  RefreshCw,
 } from 'lucide-react';
 import { WhatsAppNotificationModal } from '../common/WhatsAppNotificationModal';
 import { WhatsAppTemplateType } from '../../utils/whatsapp';
@@ -58,6 +59,8 @@ export const PaperStageTracker: React.FC = () => {
     globalDeadline,
     subjects,
     semesters,
+    syncPaperLifecycleWithDateSheet,
+    showToast,
   } = useExam();
 
   // Filters & Search
@@ -65,6 +68,7 @@ export const PaperStageTracker: React.FC = () => {
   const [selectedSubjectFilter, setSelectedSubjectFilter] = useState<string>('all');
   const [selectedSemesterFilter, setSelectedSemesterFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   // Expedite modal state
   const [expediteItem, setExpediteItem] = useState<CoursePipelineItem | null>(null);
@@ -82,118 +86,19 @@ export const PaperStageTracker: React.FC = () => {
   // QA Inspection modal
   const [inspectQAPaper, setInspectQAPaper] = useState<ExamPaper | null>(null);
 
-  // Compute full pipeline mapping ONLY for courses confirmed from the Date Sheet
+  // Synchronize Paper Submission Lifecycle tracker strictly with active confirmed Date Sheet records in ExamProvider state
   const pipelineItems: CoursePipelineItem[] = useMemo(() => {
-    // Only data that is confirmed in the date sheet should come here
-    return dateSheetRows.map(dateSheetRow => {
-      const course = courses.find(c => c.code === dateSheetRow.courseCode) || {
-        id: dateSheetRow.courseCode,
-        code: dateSheetRow.courseCode,
-        title: dateSheetRow.courseTitle,
-        subject: dateSheetRow.subject,
-        semester: dateSheetRow.semester,
-        creditHours: 3,
-      };
+    return syncPaperLifecycleWithDateSheet({ onlyConfirmed: true, autoUpdateDateSheetState: true });
+  }, [syncPaperLifecycleWithDateSheet, dateSheetRows, papers, courses, teachers]);
 
-      const paper = papers.find(
-        p => p.id === dateSheetRow.paperId || p.courseCode === dateSheetRow.courseCode
-      );
-
-      // Find assigned teacher from date sheet or faculty list
-      const assignedTeacher = teachers.find(
-        t => t.id === dateSheetRow.paperSetterTeacherId || t.name === dateSheetRow.paperSetterTeacherName
-      ) || teachers.find(
-        t => t.department === dateSheetRow.subject && t.assignedSemesters.includes(dateSheetRow.semester)
-      ) || teachers.find(t => t.department === dateSheetRow.subject);
-
-      const teacherName = dateSheetRow.paperSetterTeacherName || assignedTeacher?.name || 'Assigned Faculty';
-      const teacherId = dateSheetRow.paperSetterTeacherId || assignedTeacher?.id;
-
-      if (!paper) {
-        // Stage 1: Stuck at teacher upload
-        return {
-          course,
-          paper: undefined,
-          dateSheetRow,
-          stage: 'stuck_at_teacher_upload',
-          stageLabel: 'Faculty Paper Draft Pending',
-          stageStep: 1,
-          stuckParty: teacherName,
-          stuckPartyRole: 'teacher',
-          stuckPartyId: teacherId,
-          stuckDurationDays: 4,
-          severity: 'urgent',
-          actionNeeded: `Faculty (${teacherName}) must draft & submit question paper for ${dateSheetRow.examDate} exam`,
-        };
-      }
-
-      if (paper.status === 'pending_qa') {
-        // Stage 2: Stuck at QA review
-        return {
-          course,
-          paper,
-          dateSheetRow,
-          stage: 'stuck_at_qa_review',
-          stageLabel: 'Awaiting QA Paper Review',
-          stageStep: 2,
-          stuckParty: 'QA Committee Cell',
-          stuckPartyRole: 'qa',
-          stuckDurationDays: 2,
-          severity: 'warning',
-          actionNeeded: 'QA Cell must validate against syllabus rubric before exam conduction',
-        };
-      }
-
-      if (paper.status === 'qa_rejected') {
-        // Stage 3: Stuck at faculty revision
-        return {
-          course,
-          paper,
-          dateSheetRow,
-          stage: 'stuck_at_teacher_revision',
-          stageLabel: 'QA Rejected (Correction Required)',
-          stageStep: 2,
-          stuckParty: paper.teacherName || teacherName,
-          stuckPartyRole: 'teacher',
-          stuckPartyId: paper.teacherId || teacherId,
-          stuckDurationDays: 3,
-          severity: 'urgent',
-          actionNeeded: 'Faculty must revise paper per QA remarks & re-upload v2',
-        };
-      }
-
-      if (paper.status === 'qa_approved') {
-        return {
-          course,
-          paper,
-          dateSheetRow,
-          stage: 'fully_scheduled',
-          stageLabel: 'QA Certified & Confirmed on Date Sheet',
-          stageStep: 5,
-          stuckParty: 'None (Ready for Exam Conduction)',
-          stuckPartyRole: 'principal',
-          stuckDurationDays: 0,
-          severity: 'completed',
-          actionNeeded: `Clearance authorized for ${dateSheetRow.examDate} (${dateSheetRow.shift}) in ${dateSheetRow.hallLocation}`,
-        };
-      }
-
-      return {
-        course,
-        paper,
-        dateSheetRow,
-        stage: 'stuck_at_teacher_upload',
-        stageLabel: 'Pending Submission',
-        stageStep: 1,
-        stuckParty: teacherName,
-        stuckPartyRole: 'teacher',
-        stuckPartyId: teacherId,
-        stuckDurationDays: 1,
-        severity: 'warning',
-        actionNeeded: 'Action required',
-      };
-    });
-  }, [dateSheetRows, courses, papers, teachers]);
+  const handleManualSync = () => {
+    setIsSyncing(true);
+    const synced = syncPaperLifecycleWithDateSheet({ onlyConfirmed: true, autoUpdateDateSheetState: true });
+    setTimeout(() => {
+      setIsSyncing(false);
+      showToast(`Paper Submission Lifecycle synchronized with active Date Sheet (${synced.length} confirmed entries).`, 'success');
+    }, 350);
+  };
 
   // Stage counts for metrics
   const totalCourses = pipelineItems.length;
@@ -266,7 +171,18 @@ export const PaperStageTracker: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleManualSync}
+              disabled={isSyncing}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition shadow-2xs cursor-pointer disabled:opacity-60"
+              title="Synchronize tracker with active Date Sheet records in ExamProvider"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'Synchronizing...' : 'Sync with Date Sheet'}</span>
+            </button>
+
             <div className="text-right">
               <div className="text-xs font-semibold text-slate-400">Institutional Cutoff</div>
               <div className="text-sm font-mono font-bold text-slate-800">{globalDeadline.deadlineDate} &bull; {globalDeadline.deadlineTime}</div>
